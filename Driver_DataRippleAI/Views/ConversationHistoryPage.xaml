@@ -1,0 +1,608 @@
+<UserControl x:Class="DataRippleAIDesktop.Views.ConversationHistoryPage"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             mc:Ignorable="d"
+             d:DesignHeight="600" d:DesignWidth="1000"
+             Background="#132340">
+
+    <UserControl.Resources>
+        <!-- Transparent link-style button for Load More -->
+        <Style TargetType="Button" x:Key="TransparentLinkButtonStyle">
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border Background="Transparent" Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Foreground" Value="#1DB8B8" />
+                </Trigger>
+                <Trigger Property="IsPressed" Value="True">
+                    <Setter Property="Foreground" Value="#159898" />
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+
+        <!-- Modern Slim ScrollBar Thumb Style -->
+        <Style x:Key="SlimScrollBarThumb" TargetType="Thumb">
+            <Setter Property="OverridesDefaultStyle" Value="True"/>
+            <Setter Property="IsTabStop" Value="False"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Thumb">
+                        <Border x:Name="ThumbBorder"
+                                Background="#3A4A64"
+                                CornerRadius="3"
+                                Margin="1"/>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="ThumbBorder" Property="Background" Value="#506070"/>
+                            </Trigger>
+                            <Trigger Property="IsDragging" Value="True">
+                                <Setter TargetName="ThumbBorder" Property="Background" Value="#1DB8B8"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- Modern Slim ScrollBar Style (Vertical) -->
+        <Style x:Key="SlimVerticalScrollBar" TargetType="ScrollBar">
+            <Setter Property="OverridesDefaultStyle" Value="True"/>
+            <Setter Property="Width" Value="8"/>
+            <Setter Property="MinWidth" Value="8"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ScrollBar">
+                        <Grid Background="Transparent">
+                            <Track x:Name="PART_Track"
+                                   IsDirectionReversed="True">
+                                <Track.DecreaseRepeatButton>
+                                    <RepeatButton Command="ScrollBar.PageUpCommand"
+                                                  Opacity="0"
+                                                  Focusable="False"/>
+                                </Track.DecreaseRepeatButton>
+                                <Track.Thumb>
+                                    <Thumb Style="{StaticResource SlimScrollBarThumb}"
+                                           MinHeight="30"/>
+                                </Track.Thumb>
+                                <Track.IncreaseRepeatButton>
+                                    <RepeatButton Command="ScrollBar.PageDownCommand"
+                                                  Opacity="0"
+                                                  Focusable="False"/>
+                                </Track.IncreaseRepeatButton>
+                            </Track>
+                        </Grid>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- Modern Slim ScrollBar Style (Horizontal) -->
+        <Style x:Key="SlimHorizontalScrollBar" TargetType="ScrollBar">
+            <Setter Property="OverridesDefaultStyle" Value="True"/>
+            <Setter Property="Height" Value="8"/>
+            <Setter Property="MinHeight" Value="8"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ScrollBar">
+                        <Grid Background="Transparent">
+                            <Track x:Name="PART_Track"
+                                   IsDirectionReversed="False">
+                                <Track.DecreaseRepeatButton>
+                                    <RepeatButton Command="ScrollBar.PageLeftCommand"
+                                                  Opacity="0"
+                                                  Focusable="False"/>
+                                </Track.DecreaseRepeatButton>
+                                <Track.Thumb>
+                                    <Thumb Style="{StaticResource SlimScrollBarThumb}"
+                                           MinWidth="30"/>
+                                </Track.Thumb>
+                                <Track.IncreaseRepeatButton>
+                                    <RepeatButton Command="ScrollBar.PageRightCommand"
+                                                  Opacity="0"
+                                                  Focusable="False"/>
+                                </Track.IncreaseRepeatButton>
+                            </Track>
+                        </Grid>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- Apply slim scrollbar to ScrollViewers inside this control -->
+        <Style x:Key="SlimScrollViewerStyle" TargetType="ScrollViewer">
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ScrollViewer">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="*"/>
+                                <RowDefinition Height="Auto"/>
+                            </Grid.RowDefinitions>
+                            <ScrollContentPresenter Grid.Column="0" Grid.Row="0"
+                                                    CanContentScroll="{TemplateBinding CanContentScroll}"/>
+                            <ScrollBar x:Name="PART_VerticalScrollBar"
+                                       Grid.Column="1" Grid.Row="0"
+                                       Orientation="Vertical"
+                                       Style="{StaticResource SlimVerticalScrollBar}"
+                                       Value="{TemplateBinding VerticalOffset}"
+                                       Maximum="{TemplateBinding ScrollableHeight}"
+                                       ViewportSize="{TemplateBinding ViewportHeight}"
+                                       Visibility="{TemplateBinding ComputedVerticalScrollBarVisibility}"/>
+                            <ScrollBar x:Name="PART_HorizontalScrollBar"
+                                       Grid.Column="0" Grid.Row="1"
+                                       Orientation="Horizontal"
+                                       Style="{StaticResource SlimHorizontalScrollBar}"
+                                       Value="{TemplateBinding HorizontalOffset}"
+                                       Maximum="{TemplateBinding ScrollableWidth}"
+                                       ViewportSize="{TemplateBinding ViewportWidth}"
+                                       Visibility="{TemplateBinding ComputedHorizontalScrollBarVisibility}"/>
+                        </Grid>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </UserControl.Resources>
+
+    <Grid Background="#132340">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <!-- Header -->
+            <RowDefinition Height="*"/>
+            <!-- Content Border with Table -->
+        </Grid.RowDefinitions>
+
+        <!-- Header (Refresh button only, Back button moved to MainWindow title bar) -->
+        <Border Grid.Row="0"
+                Background="#132340"
+                BorderBrush="Transparent"
+                BorderThickness="0"
+                Padding="20,10,20,5">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+
+                <!-- Refresh Button (top-right, transparent/borderless) -->
+                <Button x:Name="btnRefresh"
+                        Grid.Column="1"
+                        Click="RefreshButton_Click"
+                        Background="Transparent"
+                        BorderThickness="0"
+                        Cursor="Hand"
+                        VerticalAlignment="Center"
+                        ToolTip="Refresh conversations">
+                    <Button.Template>
+                        <ControlTemplate TargetType="Button">
+                            <Border x:Name="RefreshBorder"
+                                    Background="Transparent"
+                                    CornerRadius="8"
+                                    Padding="8,6">
+                                <StackPanel Orientation="Horizontal">
+                                    <Viewbox Width="16" Height="16" Margin="0,0,6,0">
+                                        <Canvas Width="24" Height="24">
+                                            <Path Data="M17.65,6.35C16.2,4.9 14.21,4 12,4C7.58,4 4.01,7.58 4.01,12C4.01,16.42 7.58,20 12,20C15.73,20 18.84,17.45 19.73,14H17.65C16.83,16.33 14.61,18 12,18C8.69,18 6,15.31 6,12C6,8.69 8.69,6 12,6C13.66,6 15.14,6.69 16.22,7.78L13,11H20V4L17.65,6.35Z"
+                                                  Fill="#8B9AAF" />
+                                        </Canvas>
+                                    </Viewbox>
+                                    <TextBlock Text="Refresh"
+                                               FontSize="13"
+                                               Foreground="#8B9AAF"
+                                               VerticalAlignment="Center"/>
+                                </StackPanel>
+                            </Border>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter TargetName="RefreshBorder" Property="Background" Value="#1A2942"/>
+                                </Trigger>
+                                <Trigger Property="IsPressed" Value="True">
+                                    <Setter TargetName="RefreshBorder" Property="Background" Value="#243352"/>
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Button.Template>
+                </Button>
+            </Grid>
+        </Border>
+
+        <!-- Content Border (matching VoiceSessionPage CallLogPanel styling) -->
+        <Border Grid.Row="1"
+                Margin="15,5,15,15"
+                Background="#0E1B30"
+                CornerRadius="0"
+                BorderBrush="#00D4FF"
+                BorderThickness="1"
+                ClipToBounds="True">
+            <Border.Effect>
+                <DropShadowEffect BlurRadius="20" ShadowDepth="0" Color="#00D4FF" Opacity="0.15"/>
+            </Border.Effect>
+
+            <!-- Inner border to clip content within sharp corners -->
+            <Border CornerRadius="0"
+                    ClipToBounds="True"
+                    Background="#0E1B30">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="*"/>
+                    <!-- Table -->
+                    <RowDefinition Height="Auto"/>
+                    <!-- Loading/Status -->
+                </Grid.RowDefinitions>
+
+                <!-- Conversations Table -->
+                <DataGrid x:Name="ConversationsList"
+                          Grid.Row="0"
+                          AutoGenerateColumns="False"
+                          IsReadOnly="True"
+                          GridLinesVisibility="None"
+                          HeadersVisibility="Column"
+                          RowBackground="#0E1B30"
+                          AlternatingRowBackground="#111F36"
+                          BorderThickness="0"
+                          Background="#0E1B30"
+                          SelectionMode="Single"
+                          CanUserResizeRows="False"
+                          CanUserReorderColumns="False"
+                          HorizontalGridLinesBrush="#1A2942"
+                          VerticalGridLinesBrush="Transparent"
+                          MouseDoubleClick="ConversationItem_Click"
+                          ScrollViewer.HorizontalScrollBarVisibility="Hidden">
+
+                    <!-- DataGrid Styling -->
+                    <DataGrid.Resources>
+                        <!-- Apply slim scrollbar to the DataGrid's internal ScrollViewer -->
+                        <Style TargetType="ScrollViewer" BasedOn="{StaticResource SlimScrollViewerStyle}"/>
+
+                        <Style TargetType="DataGridColumnHeader">
+                            <Setter Property="Background" Value="#0A1628"/>
+                            <Setter Property="Foreground" Value="#7EB8D0"/>
+                            <Setter Property="FontWeight" Value="SemiBold"/>
+                            <Setter Property="FontSize" Value="12"/>
+                            <Setter Property="Padding" Value="18,14"/>
+                            <Setter Property="BorderThickness" Value="0,0,0,1"/>
+                            <Setter Property="BorderBrush" Value="#1A2942"/>
+                            <Setter Property="Template">
+                                <Setter.Value>
+                                    <ControlTemplate TargetType="DataGridColumnHeader">
+                                        <Border Background="{TemplateBinding Background}"
+                                                BorderBrush="{TemplateBinding BorderBrush}"
+                                                BorderThickness="{TemplateBinding BorderThickness}"
+                                                Padding="{TemplateBinding Padding}">
+                                            <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                                              VerticalAlignment="Center"/>
+                                        </Border>
+                                    </ControlTemplate>
+                                </Setter.Value>
+                            </Setter>
+                        </Style>
+
+                        <Style TargetType="DataGridRow">
+                            <Setter Property="Cursor" Value="Hand"/>
+                            <Setter Property="MinHeight" Value="48"/>
+                            <Setter Property="Template">
+                                <Setter.Value>
+                                    <ControlTemplate TargetType="DataGridRow">
+                                        <Border x:Name="DGR_Border"
+                                                Background="{TemplateBinding Background}"
+                                                BorderBrush="Transparent"
+                                                BorderThickness="0,0,0,1"
+                                                SnapsToDevicePixels="True">
+                                            <SelectiveScrollingGrid>
+                                                <SelectiveScrollingGrid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="Auto"/>
+                                                    <ColumnDefinition Width="*"/>
+                                                </SelectiveScrollingGrid.ColumnDefinitions>
+                                                <SelectiveScrollingGrid.RowDefinitions>
+                                                    <RowDefinition Height="*"/>
+                                                    <RowDefinition Height="Auto"/>
+                                                </SelectiveScrollingGrid.RowDefinitions>
+                                                <DataGridCellsPresenter Grid.Column="1"
+                                                                        ItemsPanel="{TemplateBinding ItemsPanel}"
+                                                                        SnapsToDevicePixels="{TemplateBinding SnapsToDevicePixels}"/>
+                                                <DataGridDetailsPresenter Grid.Column="1" Grid.Row="1"
+                                                                          SelectiveScrollingGrid.SelectiveScrollingOrientation="{Binding AreRowDetailsFrozen, ConverterParameter={x:Static SelectiveScrollingOrientation.Vertical}, Converter={x:Static DataGrid.RowDetailsScrollingConverter}, RelativeSource={RelativeSource AncestorType={x:Type DataGrid}}}"
+                                                                          Visibility="{TemplateBinding DetailsVisibility}"/>
+                                                <DataGridRowHeader Grid.RowSpan="2"
+                                                                   SelectiveScrollingGrid.SelectiveScrollingOrientation="Vertical"
+                                                                   Visibility="{Binding HeadersVisibility, ConverterParameter={x:Static DataGridHeadersVisibility.Row}, Converter={x:Static DataGrid.HeadersVisibilityConverter}, RelativeSource={RelativeSource AncestorType={x:Type DataGrid}}}"/>
+                                            </SelectiveScrollingGrid>
+                                        </Border>
+                                        <ControlTemplate.Triggers>
+                                            <Trigger Property="IsMouseOver" Value="True">
+                                                <Setter TargetName="DGR_Border" Property="Background" Value="#162540"/>
+                                                <Setter TargetName="DGR_Border" Property="BorderBrush" Value="#1A3050"/>
+                                            </Trigger>
+                                            <Trigger Property="IsSelected" Value="True">
+                                                <Setter TargetName="DGR_Border" Property="Background" Value="#14303F"/>
+                                                <Setter TargetName="DGR_Border" Property="BorderBrush" Value="#1DB8B8"/>
+                                            </Trigger>
+                                        </ControlTemplate.Triggers>
+                                    </ControlTemplate>
+                                </Setter.Value>
+                            </Setter>
+                        </Style>
+
+                        <Style TargetType="DataGridCell">
+                            <Setter Property="BorderThickness" Value="0"/>
+                            <Setter Property="Padding" Value="18,12"/>
+                            <Setter Property="VerticalAlignment" Value="Center"/>
+                            <Setter Property="Foreground" Value="#9BAABB"/>
+                            <Setter Property="FontSize" Value="13"/>
+                            <Setter Property="Template">
+                                <Setter.Value>
+                                    <ControlTemplate TargetType="DataGridCell">
+                                        <Border Background="Transparent"
+                                                Padding="{TemplateBinding Padding}"
+                                                SnapsToDevicePixels="True">
+                                            <ContentPresenter VerticalAlignment="Center"/>
+                                        </Border>
+                                    </ControlTemplate>
+                                </Setter.Value>
+                            </Setter>
+                            <Style.Triggers>
+                                <Trigger Property="IsSelected" Value="True">
+                                    <Setter Property="Foreground" Value="#D0E8F0"/>
+                                </Trigger>
+                            </Style.Triggers>
+                        </Style>
+                    </DataGrid.Resources>
+
+                    <!-- Columns -->
+                    <DataGrid.Columns>
+                        <!-- Date Column -->
+                        <DataGridTextColumn Header="Date"
+                                            Binding="{Binding CreatedAtDateTime, StringFormat='MMM dd, yyyy HH:mm:ss'}"
+                                            Width="200">
+                            <DataGridTextColumn.ElementStyle>
+                                <Style TargetType="TextBlock">
+                                    <Setter Property="Foreground" Value="#A0B4C8"/>
+                                    <Setter Property="FontSize" Value="13"/>
+                                    <Setter Property="VerticalAlignment" Value="Center"/>
+                                </Style>
+                            </DataGridTextColumn.ElementStyle>
+                        </DataGridTextColumn>
+
+                        <!-- Conversation ID Column -->
+                        <DataGridTextColumn Header="Conversation ID"
+                                            Binding="{Binding ConversationId}"
+                                            Width="220">
+                            <DataGridTextColumn.ElementStyle>
+                                <Style TargetType="TextBlock">
+                                    <Setter Property="FontFamily" Value="Consolas"/>
+                                    <Setter Property="FontSize" Value="11"/>
+                                    <Setter Property="Foreground" Value="#5E7A94"/>
+                                    <Setter Property="VerticalAlignment" Value="Center"/>
+                                </Style>
+                            </DataGridTextColumn.ElementStyle>
+                        </DataGridTextColumn>
+
+                        <!-- Agent Column -->
+                        <DataGridTextColumn Header="Agent"
+                                            Binding="{Binding AgentName}"
+                                            Width="2*">
+                            <DataGridTextColumn.ElementStyle>
+                                <Style TargetType="TextBlock">
+                                    <Setter Property="Foreground" Value="#9BAABB"/>
+                                    <Setter Property="FontSize" Value="13"/>
+                                    <Setter Property="VerticalAlignment" Value="Center"/>
+                                </Style>
+                            </DataGridTextColumn.ElementStyle>
+                        </DataGridTextColumn>
+
+                        <!-- Duration Column -->
+                        <DataGridTextColumn Header="Duration"
+                                            Binding="{Binding DisplayDuration}"
+                                            Width="100">
+                            <DataGridTextColumn.ElementStyle>
+                                <Style TargetType="TextBlock">
+                                    <Setter Property="Foreground" Value="#8B9AAF"/>
+                                    <Setter Property="FontSize" Value="13"/>
+                                    <Setter Property="VerticalAlignment" Value="Center"/>
+                                </Style>
+                            </DataGridTextColumn.ElementStyle>
+                        </DataGridTextColumn>
+
+                        <!-- Messages Column -->
+                        <DataGridTextColumn Header="Messages"
+                                            Binding="{Binding MessageCount}"
+                                            Width="110">
+                            <DataGridTextColumn.ElementStyle>
+                                <Style TargetType="TextBlock">
+                                    <Setter Property="Foreground" Value="#8B9AAF"/>
+                                    <Setter Property="FontSize" Value="13"/>
+                                    <Setter Property="VerticalAlignment" Value="Center"/>
+                                    <Setter Property="TextAlignment" Value="Center"/>
+                                </Style>
+                            </DataGridTextColumn.ElementStyle>
+                        </DataGridTextColumn>
+
+                        <!-- Status Column -->
+                        <DataGridTemplateColumn Header="Evaluation Result"
+                                                Width="150">
+                            <DataGridTemplateColumn.CellTemplate>
+                                <DataTemplate>
+                                    <Border CornerRadius="10"
+                                            Padding="12,5"
+                                            HorizontalAlignment="Center">
+                                        <Border.Style>
+                                            <Style TargetType="Border">
+                                                <Setter Property="Background" Value="#2A3A52"/>
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding CallSuccessful}" Value="success">
+                                                        <Setter Property="Background" Value="#1DB8B8"/>
+                                                    </DataTrigger>
+                                                    <DataTrigger Binding="{Binding CallSuccessful}" Value="unknown">
+                                                        <Setter Property="Background" Value="#FF6B35"/>
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </Border.Style>
+                                        <TextBlock Text="{Binding DisplayStatus}"
+                                                   FontSize="11"
+                                                   FontWeight="SemiBold"
+                                                   Foreground="White"
+                                                   HorizontalAlignment="Center"/>
+                                    </Border>
+                                </DataTemplate>
+                            </DataGridTemplateColumn.CellTemplate>
+                        </DataGridTemplateColumn>
+                    </DataGrid.Columns>
+                </DataGrid>
+
+                <!-- Loading/Status -->
+                <Border Grid.Row="1"
+                        Background="#0E1B30"
+                        BorderBrush="Transparent"
+                        BorderThickness="0"
+                        Padding="20,12">
+                    <StackPanel>
+                        <ProgressBar x:Name="LoadingProgressBar"
+                                     Height="3"
+                                     IsIndeterminate="True"
+                                     Visibility="Collapsed"
+                                     Foreground="#1DB8B8"
+                                     Background="#1A2942"
+                                     BorderThickness="0"/>
+                        <TextBlock x:Name="txtStatus"
+                                   Text=""
+                                   FontSize="12"
+                                   Foreground="#6B7A94"
+                                   TextAlignment="Center"
+                                   Margin="0,8,0,0"/>
+                        <Button x:Name="btnLoadMore"
+                                Content="Load More"
+                                Padding="12,6"
+                                Margin="0,8,0,0"
+                                Foreground="#8B9AAF"
+                                FontSize="12"
+                                FontWeight="Medium"
+                                Height="35"
+                                MinWidth="120"
+                                Cursor="Hand"
+                                Visibility="Collapsed"
+                                Click="LoadMoreButton_Click"
+                                Style="{StaticResource TransparentLinkButtonStyle}"/>
+                    </StackPanel>
+                </Border>
+            </Grid>
+            </Border>
+        </Border>
+
+        <!-- Transcript Modal Overlay -->
+        <Border x:Name="TranscriptModal"
+                Grid.Row="0"
+                Grid.RowSpan="2"
+                Background="#CC000000"
+                Visibility="Collapsed">
+            <Border Background="#132340"
+                    MaxWidth="900"
+                    MaxHeight="700"
+                    Margin="50"
+                    CornerRadius="12"
+                    BorderBrush="#1DB8B8"
+                    BorderThickness="2">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
+
+                    <!-- Modal Header -->
+                    <Border Grid.Row="0"
+                            Background="#132340"
+                            BorderBrush="Transparent"
+                            BorderThickness="0"
+                            CornerRadius="12,12,0,0"
+                            Padding="20,15">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+
+                            <StackPanel Grid.Column="0">
+                                <TextBlock x:Name="txtTranscriptTitle"
+                                           Text="Conversation Transcript"
+                                           FontSize="18"
+                                           FontWeight="SemiBold"
+                                           Foreground="White"/>
+                                <TextBlock x:Name="txtTranscriptSubtitle"
+                                           Text=""
+                                           FontSize="12"
+                                           Foreground="#8B9AAF"
+                                           Margin="0,5,0,0"/>
+                            </StackPanel>
+
+                            <Button Grid.Column="1"
+                                    Content="&#x2715;"
+                                    Click="CloseTranscript_Click"
+                                    Background="Transparent"
+                                    Foreground="White"
+                                    BorderThickness="0"
+                                    FontSize="20"
+                                    Width="40"
+                                    Height="40"
+                                    Cursor="Hand">
+                                <Button.Style>
+                                    <Style TargetType="Button">
+                                        <Setter Property="Background" Value="Transparent"/>
+                                        <Style.Triggers>
+                                            <Trigger Property="IsMouseOver" Value="True">
+                                                <Setter Property="Background" Value="#3A4A64"/>
+                                            </Trigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </Button.Style>
+                            </Button>
+                        </Grid>
+                    </Border>
+
+                    <!-- Modal Content -->
+                    <ScrollViewer x:Name="TranscriptScrollViewer"
+                                  Grid.Row="1"
+                                  VerticalScrollBarVisibility="Auto"
+                                  Background="#132340"
+                                  Padding="30,20">
+                        <StackPanel x:Name="TranscriptPanel">
+                            <!-- Transcript messages will be added here dynamically -->
+                        </StackPanel>
+                    </ScrollViewer>
+
+                    <!-- Loading Overlay for Transcript -->
+                    <Border x:Name="TranscriptLoadingOverlay"
+                            Grid.Row="1"
+                            Background="#CC132340"
+                            Visibility="Collapsed">
+                        <StackPanel HorizontalAlignment="Center"
+                                    VerticalAlignment="Center">
+                            <ProgressBar Width="200"
+                                         Height="6"
+                                         IsIndeterminate="True"
+                                         Foreground="#1DB8B8"/>
+                            <TextBlock Text="Loading transcript..."
+                                       FontSize="14"
+                                       Foreground="#8B9AAF"
+                                       Margin="0,15,0,0"
+                                       HorizontalAlignment="Center"/>
+                        </StackPanel>
+                    </Border>
+                </Grid>
+            </Border>
+        </Border>
+    </Grid>
+</UserControl>

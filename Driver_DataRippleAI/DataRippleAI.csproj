@@ -1,0 +1,120 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net9.0-windows10.0.26100.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWPF>true</UseWPF>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <InterceptorsNamespaces>$(InterceptorsNamespaces);Microsoft.Extensions.Configuration.Binder.SourceGeneration</InterceptorsNamespaces>
+    
+    <!-- Windows 10 Compatibility Settings -->
+    <SupportedOSPlatformVersion>10.0.26100.0</SupportedOSPlatformVersion>
+    <!-- RuntimeIdentifier and SelfContained are set during publish command, not in project file -->
+    
+    <!-- Assembly Information -->
+    <AssemblyTitle>DataRipple AI</AssemblyTitle>
+    <AssemblyDescription>AI-powered voice transcription and analysis</AssemblyDescription>
+    <AssemblyVersion>1.0.0.0</AssemblyVersion>
+    <FileVersion>1.0.0.0</FileVersion>
+    
+    <!-- Application Icon -->
+    <ApplicationIcon>logo.ico</ApplicationIcon>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Remove="appsettings.json" />
+    <None Remove="logo.png" />
+    <None Remove="logo-full.png" />
+    <None Remove="Resources\ImageBrowse.png" />
+    <None Remove="Resources\ImageClipboard.png" />
+    <None Remove="Resources\ImageCopy.png" />
+    <None Remove="Resources\ImageEdit.png" />
+    <None Remove="Resources\ImageLogout.png" />
+    <None Remove="Resources\ImageSave.png" />
+    <None Remove="Resources\ImageSettings.png" />
+    <None Remove="Resources\ImageWhiteWave.png" />
+    <None Remove="Resources\startCall.png" />
+    <None Remove="Resources\endCall.png" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Resource Include="Resources\ImageClipboard.png" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="appsettings.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="NLog.config">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Configuration" Version="8.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.FileExtensions" Version="8.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.Json" Version="8.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.Binder" Version="8.0.2" />
+    <PackageReference Include="Microsoft.Extensions.Options" Version="9.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Logging" Version="9.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="9.0.0" />
+    <PackageReference Include="System.Net.WebSockets.Client" Version="4.3.2" />
+
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.2592.51" />
+    <PackageReference Include="NAudio" Version="2.2.1" />
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+    <PackageReference Include="NLog" Version="5.3.4" />
+    <PackageReference Include="System.Net.Http" Version="4.3.4" />
+    <PackageReference Include="System.IdentityModel.Tokens.Jwt" Version="8.12.1" />
+
+  </ItemGroup>
+
+  <ItemGroup>
+    <Resource Include="logo.png" />
+    <Resource Include="logo-full.png" />
+    <Resource Include="Resources\ImageBrowse.png" />
+    <Resource Include="Resources\ImageCopy.png" />
+    <Resource Include="Resources\ImageEdit.png" />
+    <Resource Include="Resources\ImageLogout.png" />
+    <Resource Include="Resources\ImageLogoutBlue.png" />
+    <Resource Include="Resources\ImageSave.png" />
+    <Resource Include="Resources\ImageSettings.png" />
+    <Resource Include="Resources\ImageWhiteWave.png" />
+    <Resource Include="Resources\startCall.png" />
+    <Resource Include="Resources\endCall.png" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="logo.png">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="logo.ico">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Update="HelperControls\RoundedButtonCustomized.xaml.cs">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Update="Properties\Resources.Designer.cs">
+      <DesignTime>True</DesignTime>
+      <AutoGen>True</AutoGen>
+      <DependentUpon>Resources.resx</DependentUpon>
+    </Compile>
+  </ItemGroup>
+  
+
+
+  <ItemGroup>
+    <EmbeddedResource Update="Properties\Resources.resx">
+      <Generator>ResXFileCodeGenerator</Generator>
+      <LastGenOutput>Resources.Designer.cs</LastGenOutput>
+    </EmbeddedResource>
+  </ItemGroup>
+
+
+
+</Project>

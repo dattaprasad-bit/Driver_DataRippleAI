@@ -1,0 +1,869 @@
+<UserControl x:Class="DataRippleAIDesktop.Views.ConfigurationSettings"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" 
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008" 
+             mc:Ignorable="d" 
+             d:DesignHeight="800" d:DesignWidth="1200"
+             Background="#132340">
+
+    <UserControl.Resources>
+        <!-- Button Style matching Login Page -->
+        <Style TargetType="Button" x:Key="PrimaryButtonStyle">
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border Background="{TemplateBinding Background}" CornerRadius="6">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Background" Value="#00B8E6" />
+                </Trigger>
+                <Trigger Property="IsPressed" Value="True">
+                    <Setter Property="Background" Value="#0099CC" />
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+
+        <!-- CheckBox Style matching Login Page -->
+        <Style TargetType="CheckBox">
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="CheckBox">
+                        <StackPanel Orientation="Horizontal">
+                            <Border x:Name="Border"
+                                    Width="18"
+                                    Height="18"
+                                    Background="#1A2942"
+                                    BorderBrush="#3A4A64"
+                                    BorderThickness="1"
+                                    CornerRadius="3"
+                                    VerticalAlignment="Center">
+                                <TextBlock x:Name="CheckMark"
+                                         Text="✓"
+                                         FontSize="12"
+                                         FontWeight="Bold"
+                                         Foreground="#00D4FF"
+                                         HorizontalAlignment="Center"
+                                         VerticalAlignment="Center"
+                                         Visibility="Collapsed" />
+                            </Border>
+                            <ContentPresenter Margin="8,0,0,0"
+                                            VerticalAlignment="Center"/>
+                        </StackPanel>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="CheckMark" Property="Visibility" Value="Visible"/>
+                                <Setter TargetName="Border" Property="Background" Value="#1A2942"/>
+                                <Setter TargetName="Border" Property="BorderBrush" Value="#00D4FF"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </UserControl.Resources>
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <!-- Header -->
+        <Border Grid.Row="0"
+                Background="#132340"
+                BorderBrush="Transparent"
+                BorderThickness="0"
+                Padding="20,15">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                
+                <Button x:Name="BackButton" 
+                        Grid.Column="0" 
+                        Content="← Back" 
+                        Background="#00D4FF" 
+                        Foreground="White" 
+                        BorderThickness="0" 
+                        Padding="20,10" 
+                        FontSize="14"
+                        Width="180"
+                        Height="45"
+                        Click="BackButton_Click"
+                        Cursor="Hand"
+                        Style="{StaticResource PrimaryButtonStyle}"/>
+                
+                <Button x:Name="SaveButton" 
+                        Grid.Column="2" 
+                        Content="💾 Save Settings" 
+                        Background="#00D4FF" 
+                        Foreground="White" 
+                        BorderThickness="0" 
+                        Padding="20,10" 
+                        FontSize="14"
+                        Width="180"
+                        Height="45"
+                        Click="SaveButton_Click"
+                        Cursor="Hand"
+                        Style="{StaticResource PrimaryButtonStyle}"/>
+            </Grid>
+        </Border>
+
+        <!-- Main Content -->
+        <ScrollViewer Grid.Row="1" 
+                     VerticalScrollBarVisibility="Auto" 
+                     HorizontalScrollBarVisibility="Disabled"
+                     Background="#132340">
+            <Grid Margin="20">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="20"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+
+                <!-- Left Column -->
+                <StackPanel Grid.Column="0">
+                    <!-- API Keys Section -->
+                    <Border Background="#132340"
+                            BorderBrush="Transparent"
+                            BorderThickness="0"
+                            CornerRadius="12"
+                            Padding="20"
+                            Margin="0,0,0,20">
+                        <StackPanel>
+                            <TextBlock Text="🔑 API Keys" 
+                                      FontSize="18" 
+                                      FontWeight="SemiBold" 
+                                      Foreground="White" 
+                                      Margin="0,0,0,15"/>
+
+                            <!-- WebSocket Configuration -->
+                            <TextBlock Text="Frontend WebSocket URL" 
+                                      FontWeight="SemiBold" 
+                                      Foreground="#00D4FF" 
+                                      Margin="0,0,0,8"/>
+                            <Grid Margin="0,0,0,8">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <Border Grid.Column="0"
+                                        Background="#1A2942" 
+                                        CornerRadius="6" 
+                                        Height="40"
+                                        BorderThickness="0"
+                                        Margin="0,0,5,0">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0"
+                                                  Text="🔌"
+                                                  FontSize="14"
+                                                  Foreground="#6B7A94"
+                                                  VerticalAlignment="Center"
+                                                  Margin="12,0,10,0" />
+                            <TextBox x:Name="WebSocketUrlBox" 
+                                     TextChanged="WebSocketUrl_TextChanged"
+                                                 Grid.Column="1"
+                                                 FontSize="13"
+                                                 Padding="0,0,12,0"
+                                                 BorderThickness="0"
+                                                 Background="Transparent"
+                                                 Foreground="#8B9AAF"
+                                                 CaretBrush="White"
+                                                 VerticalAlignment="Center"
+                                     ToolTip="WebSocket URL for frontend integration (e.g., ws://localhost:3005/ws/)"/>
+                                    </Grid>
+                                </Border>
+                                <Button x:Name="TestWebSocketButton" 
+                                        Content="🧪 Test" 
+                                        Grid.Column="1"
+                                        Background="#00D4FF" 
+                                        Foreground="White" 
+                                        BorderThickness="0" 
+                                        Padding="12,8" 
+                                        FontSize="12"
+                                        Height="40"
+                                        MinWidth="90"
+                                        Click="TestWebSocket_Click"
+                                        Cursor="Hand"
+                                        ToolTip="Test Frontend WebSocket connection"
+                                        Style="{StaticResource PrimaryButtonStyle}"/>
+                            </Grid>
+                            <TextBlock Text="Example: ws://localhost:3005/ws/ or wss://yourdomain.com/ws/" 
+                                       FontSize="11" 
+                                       Foreground="#6B7A94" 
+                                       Margin="0,0,0,15"/>
+
+                            <!-- Current Active WebSocket URL (from login) -->
+                            <Separator x:Name="CurrentWebSocketUrlSeparator"
+                                      Background="Transparent"
+                                      Margin="0,0,0,15"
+                                      Visibility="Collapsed"/>
+                            <TextBlock x:Name="CurrentWebSocketUrlTitle" 
+                                      Text="Current Active WebSocket URL" 
+                                      FontWeight="SemiBold" 
+                                      Foreground="#00D4FF" 
+                                      Margin="0,0,0,8"/>
+                            <TextBlock x:Name="CurrentWebSocketUrlDescription" 
+                                      Text="This is the WebSocket URL currently in use after login" 
+                                      FontSize="11" 
+                                      Foreground="#6B7A94" 
+                                      Margin="0,0,0,8"/>
+                            <Border x:Name="CurrentWebSocketUrlBorder"
+                                    BorderBrush="Transparent"
+                                    BorderThickness="0"
+                                    Background="#1A2942"
+                                    CornerRadius="6"
+                                    Padding="12,8"
+                                    Margin="0,0,0,5">
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock x:Name="CurrentWebSocketUrlLabel" 
+                                               Grid.Column="0"
+                                               Text="Not connected" 
+                                               TextWrapping="Wrap"
+                                               FontFamily="Consolas"
+                                               FontSize="11" 
+                                               Foreground="#8B9AAF"
+                                               VerticalAlignment="Center"
+                                               ToolTip="Current active WebSocket URL from login"/>
+                                    <Button x:Name="CopyWebSocketUrlButton" 
+                                            Grid.Column="1"
+                                            Content="📋 Copy" 
+                                            Background="#00D4FF" 
+                                    Foreground="White" 
+                                    BorderThickness="0" 
+                                            Padding="16,8" 
+                                            FontSize="11"
+                                            MinWidth="90"
+                                            Click="CopyWebSocketUrl_Click"
+                                    Cursor="Hand"
+                                            ToolTip="Copy WebSocket URL to clipboard"
+                                            Margin="8,0,0,0"
+                                            Visibility="Collapsed"
+                                            Style="{StaticResource PrimaryButtonStyle}"/>
+                                </Grid>
+                            </Border>
+                        </StackPanel>
+                    </Border>
+
+                    <!-- Backend Audio Streaming Section -->
+                    <Border Background="#132340"
+                            BorderBrush="Transparent"
+                            BorderThickness="0"
+                            CornerRadius="12"
+                            Padding="20"
+                            Margin="0,0,0,20">
+                        <StackPanel>
+                            <TextBlock Text="Backend Audio Streaming"
+                                      FontSize="18"
+                                      FontWeight="SemiBold"
+                                      Foreground="White"
+                                      Margin="0,0,0,15"/>
+
+                            <!-- Backend Audio WebSocket URL -->
+                            <TextBlock Text="Backend Audio WebSocket URL"
+                                      FontWeight="SemiBold"
+                                      Foreground="#00D4FF"
+                                      Margin="0,0,0,8"/>
+                            <Border Background="#1A2942"
+                                    CornerRadius="6"
+                                    Height="40"
+                                    BorderThickness="0"
+                                    Margin="0,0,0,4">
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Grid.Column="0"
+                                              Text="WS"
+                                              FontSize="11"
+                                              FontWeight="Bold"
+                                              Foreground="#6B7A94"
+                                              VerticalAlignment="Center"
+                                              Margin="12,0,10,0" />
+                                    <TextBox x:Name="BackendAudioWebSocketUrlBox"
+                                             TextChanged="BackendAudioWebSocketUrl_TextChanged"
+                                             Grid.Column="1"
+                                             FontSize="13"
+                                             Padding="0,0,12,0"
+                                             BorderThickness="0"
+                                             Background="Transparent"
+                                             Foreground="#8B9AAF"
+                                             CaretBrush="White"
+                                             VerticalAlignment="Center"
+                                             ToolTip="WebSocket URL for backend audio streaming (leave empty to auto-derive from Backend BaseUrl)"/>
+                                </Grid>
+                            </Border>
+                            <TextBlock Text="Leave empty to auto-derive from Backend BaseUrl. Example: wss://ghostagent-dev.dataripple.ai/ws/audio"
+                                       FontSize="11"
+                                       Foreground="#6B7A94"
+                                       Margin="0,0,0,15"/>
+
+                            <!-- Sample Rate -->
+                            <TextBlock Text="Sample Rate (Hz)"
+                                      FontWeight="SemiBold"
+                                      Foreground="#00D4FF"
+                                      Margin="0,0,0,8"/>
+                            <Border Background="#1A2942"
+                                    CornerRadius="6"
+                                    Height="40"
+                                    BorderThickness="0"
+                                    Margin="0,0,0,4">
+                                <ComboBox x:Name="BackendAudioSampleRateCombo"
+                                          SelectionChanged="BackendAudioSampleRate_SelectionChanged"
+                                          FontSize="13"
+                                          Padding="12,0,12,0"
+                                          BorderThickness="0"
+                                          Background="Transparent"
+                                          Foreground="#8B9AAF"
+                                          VerticalAlignment="Center"
+                                          ToolTip="Audio sample rate for backend streaming">
+                                    <ComboBoxItem Content="8000" Tag="8000"/>
+                                    <ComboBoxItem Content="16000" Tag="16000"/>
+                                    <ComboBoxItem Content="22050" Tag="22050"/>
+                                    <ComboBoxItem Content="44100" Tag="44100"/>
+                                    <ComboBoxItem Content="48000" Tag="48000"/>
+                                </ComboBox>
+                            </Border>
+                            <TextBlock Text="Default: 16000 Hz (recommended for speech)"
+                                       FontSize="11"
+                                       Foreground="#6B7A94"
+                                       Margin="0,0,0,15"/>
+
+                            <!-- Bit Depth -->
+                            <TextBlock Text="Bit Depth"
+                                      FontWeight="SemiBold"
+                                      Foreground="#00D4FF"
+                                      Margin="0,0,0,8"/>
+                            <Border Background="#1A2942"
+                                    CornerRadius="6"
+                                    Height="40"
+                                    BorderThickness="0"
+                                    Margin="0,0,0,4">
+                                <ComboBox x:Name="BackendAudioBitDepthCombo"
+                                          SelectionChanged="BackendAudioBitDepth_SelectionChanged"
+                                          FontSize="13"
+                                          Padding="12,0,12,0"
+                                          BorderThickness="0"
+                                          Background="Transparent"
+                                          Foreground="#8B9AAF"
+                                          VerticalAlignment="Center"
+                                          ToolTip="Bits per sample for backend audio streaming">
+                                    <ComboBoxItem Content="8-bit" Tag="8"/>
+                                    <ComboBoxItem Content="16-bit" Tag="16"/>
+                                    <ComboBoxItem Content="24-bit" Tag="24"/>
+                                </ComboBox>
+                            </Border>
+                            <TextBlock Text="Default: 16-bit (recommended for speech)"
+                                       FontSize="11"
+                                       Foreground="#6B7A94"
+                                       Margin="0,0,0,15"/>
+
+                            <!-- Channels -->
+                            <TextBlock Text="Channels"
+                                      FontWeight="SemiBold"
+                                      Foreground="#00D4FF"
+                                      Margin="0,0,0,8"/>
+                            <Border Background="#1A2942"
+                                    CornerRadius="6"
+                                    Height="40"
+                                    BorderThickness="0"
+                                    Margin="0,0,0,4">
+                                <ComboBox x:Name="BackendAudioChannelsCombo"
+                                          SelectionChanged="BackendAudioChannels_SelectionChanged"
+                                          FontSize="13"
+                                          Padding="12,0,12,0"
+                                          BorderThickness="0"
+                                          Background="Transparent"
+                                          Foreground="#8B9AAF"
+                                          VerticalAlignment="Center"
+                                          ToolTip="Number of audio channels for backend streaming">
+                                    <ComboBoxItem Content="Mono (1 channel)" Tag="1"/>
+                                    <ComboBoxItem Content="Stereo (2 channels)" Tag="2"/>
+                                </ComboBox>
+                            </Border>
+                            <TextBlock Text="Default: Mono (recommended for speech)"
+                                       FontSize="11"
+                                       Foreground="#6B7A94"
+                                       Margin="0,0,0,15"/>
+
+                            <!-- Chunking Interval -->
+                            <TextBlock Text="Chunking Interval (ms)"
+                                      FontWeight="SemiBold"
+                                      Foreground="#00D4FF"
+                                      Margin="0,0,0,8"/>
+                            <Border Background="#1A2942"
+                                    CornerRadius="6"
+                                    Height="40"
+                                    BorderThickness="0"
+                                    Margin="0,0,0,4">
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Grid.Column="0"
+                                              Text="ms"
+                                              FontSize="11"
+                                              FontWeight="Bold"
+                                              Foreground="#6B7A94"
+                                              VerticalAlignment="Center"
+                                              Margin="12,0,10,0" />
+                                    <TextBox x:Name="BackendAudioChunkingIntervalBox"
+                                             TextChanged="BackendAudioChunkingInterval_TextChanged"
+                                             Grid.Column="1"
+                                             FontSize="13"
+                                             Padding="0,0,12,0"
+                                             BorderThickness="0"
+                                             Background="Transparent"
+                                             Foreground="#8B9AAF"
+                                             CaretBrush="White"
+                                             VerticalAlignment="Center"
+                                             ToolTip="Interval between audio chunks sent to backend (milliseconds)"/>
+                                </Grid>
+                            </Border>
+                            <TextBlock Text="Default: 200 ms. Lower values = lower latency but more network overhead"
+                                       FontSize="11"
+                                       Foreground="#6B7A94"
+                                       Margin="0,0,0,15"/>
+
+                            <!-- Connection Timeout -->
+                            <TextBlock Text="Connection Timeout (seconds)"
+                                      FontWeight="SemiBold"
+                                      Foreground="#00D4FF"
+                                      Margin="0,0,0,8"/>
+                            <Border Background="#1A2942"
+                                    CornerRadius="6"
+                                    Height="40"
+                                    BorderThickness="0"
+                                    Margin="0,0,0,4">
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Grid.Column="0"
+                                              Text="sec"
+                                              FontSize="11"
+                                              FontWeight="Bold"
+                                              Foreground="#6B7A94"
+                                              VerticalAlignment="Center"
+                                              Margin="12,0,10,0" />
+                                    <TextBox x:Name="BackendAudioConnectionTimeoutBox"
+                                             TextChanged="BackendAudioConnectionTimeout_TextChanged"
+                                             Grid.Column="1"
+                                             FontSize="13"
+                                             Padding="0,0,12,0"
+                                             BorderThickness="0"
+                                             Background="Transparent"
+                                             Foreground="#8B9AAF"
+                                             CaretBrush="White"
+                                             VerticalAlignment="Center"
+                                             ToolTip="Maximum time to wait for initial WebSocket connection (seconds)"/>
+                                </Grid>
+                            </Border>
+                            <TextBlock Text="Default: 20 seconds"
+                                       FontSize="11"
+                                       Foreground="#6B7A94"
+                                       Margin="0,0,0,15"/>
+
+                            <!-- Max Reconnection Attempts -->
+                            <TextBlock Text="Max Reconnection Attempts"
+                                      FontWeight="SemiBold"
+                                      Foreground="#00D4FF"
+                                      Margin="0,0,0,8"/>
+                            <Border Background="#1A2942"
+                                    CornerRadius="6"
+                                    Height="40"
+                                    BorderThickness="0"
+                                    Margin="0,0,0,4">
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Grid.Column="0"
+                                              Text="#"
+                                              FontSize="11"
+                                              FontWeight="Bold"
+                                              Foreground="#6B7A94"
+                                              VerticalAlignment="Center"
+                                              Margin="12,0,10,0" />
+                                    <TextBox x:Name="BackendAudioMaxReconnectionBox"
+                                             TextChanged="BackendAudioMaxReconnection_TextChanged"
+                                             Grid.Column="1"
+                                             FontSize="13"
+                                             Padding="0,0,12,0"
+                                             BorderThickness="0"
+                                             Background="Transparent"
+                                             Foreground="#8B9AAF"
+                                             CaretBrush="White"
+                                             VerticalAlignment="Center"
+                                             ToolTip="Maximum number of reconnection attempts before giving up"/>
+                                </Grid>
+                            </Border>
+                            <TextBlock Text="Default: 10 attempts with exponential backoff"
+                                       FontSize="11"
+                                       Foreground="#6B7A94"
+                                       Margin="0,0,0,0"/>
+                        </StackPanel>
+                    </Border>
+
+                    <!-- Advanced Settings Section -->
+                    <Border Background="#132340"
+                            BorderBrush="Transparent"
+                            BorderThickness="0"
+                            CornerRadius="12"
+                            Padding="20">
+                        <StackPanel>
+                            <TextBlock Text="Advanced Settings"
+                                      FontSize="18"
+                                      FontWeight="SemiBold"
+                                      Foreground="White"
+                                      Margin="0,0,0,15"/>
+                            
+                            <!-- Enable Frontend Integration -->
+                            <CheckBox x:Name="EnableFrontendIntegrationCheckBox" 
+                                      Content="Enable Frontend Integration (WebSocket communication with web dashboard)" 
+                                      IsChecked="True" 
+                                      Checked="EnableFrontendIntegrationCheckBox_Changed" 
+                                      Unchecked="EnableFrontendIntegrationCheckBox_Changed"
+                                      Foreground="#8B9AAF"
+                                      FontSize="14"
+                                      Margin="0,0,0,12"
+                                      ToolTip="Enable real-time communication with web frontend dashboard"/>
+                            
+                            <!-- Enable Call Logging -->
+                            <CheckBox x:Name="EnableCallLoggingCheckBox" 
+                                      Content="Enable Call Logging (Save transcripts and responses to files)" 
+                                      IsChecked="True" 
+                                      Checked="EnableCallLoggingCheckBox_Changed" 
+                                      Unchecked="EnableCallLoggingCheckBox_Changed"
+                                      Foreground="#8B9AAF"
+                                      FontSize="14"
+                                      Margin="0,0,0,12"
+                                      ToolTip="Creates detailed log files in Call Logs folder for each call session"/>
+
+                            <!-- DevMode: System Audio Only (No Mic) -->
+                            <CheckBox x:Name="DevModeSystemAudioOnlyCheckBox" 
+                                      Content="DevMode: System Audio Only (No Microphone) - For testing with PC audio playback" 
+                                      IsChecked="False" 
+                                      Checked="DevModeSystemAudioOnlyCheckBox_Changed" 
+                                      Unchecked="DevModeSystemAudioOnlyCheckBox_Changed"
+                                      Foreground="#8B9AAF"
+                                      FontSize="14"
+                                      Margin="0,0,0,12"
+                                      ToolTip="Enable this to capture only system audio (speaker output) without microphone. Useful for testing by playing audio on PC."/>
+                        </StackPanel>
+                    </Border>
+
+                </StackPanel>
+
+                <!-- Right Column -->
+                <StackPanel Grid.Column="2">
+                    <!-- Device Selection Section -->
+                    <Border Background="#132340"
+                            BorderBrush="Transparent"
+                            BorderThickness="0"
+                            CornerRadius="12"
+                            Padding="20"
+                            Margin="0,0,0,20">
+                        <StackPanel>
+                            <TextBlock Text="🎤 Audio Devices" 
+                                      FontSize="18" 
+                                      FontWeight="SemiBold" 
+                                      Foreground="White" 
+                                      Margin="0,0,0,15"/>
+                            
+                            <!-- Microphone Device -->
+                            <TextBlock Text="Microphone Device" 
+                                      FontWeight="SemiBold" 
+                                      Foreground="#28A745" 
+                                      Margin="0,0,0,8"/>
+                            <Grid Margin="0,0,0,10">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <Border Grid.Column="0"
+                                        Background="#1A2942" 
+                                        CornerRadius="6" 
+                                        Height="40"
+                                        BorderThickness="0"
+                                        Margin="0,0,5,0">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0"
+                                                  Text="🎤"
+                                                  FontSize="14"
+                                                  Foreground="#6B7A94"
+                                                  VerticalAlignment="Center"
+                                                  Margin="12,0,10,0" />
+                                        <ComboBox x:Name="MicrophoneDeviceCombo" 
+                                                  SelectionChanged="MicrophoneDevice_SelectionChanged"
+                                                  Grid.Column="1"
+                                                  FontSize="13"
+                                                  Padding="0,0,12,0"
+                                                  BorderThickness="0"
+                                                  Background="Transparent"
+                                                  Foreground="#8B9AAF"
+                                                  VerticalAlignment="Center"/>
+                                    </Grid>
+                                </Border>
+                                <Button x:Name="TestMicrophoneButton" 
+                                        Grid.Column="1" 
+                                        Content="🧪 Test" 
+                                        Background="#00D4FF" 
+                                        Foreground="White" 
+                                        BorderThickness="0" 
+                                        Padding="12,8" 
+                                        FontSize="12"
+                                        Height="40"
+                                        MinWidth="90"
+                                        Click="TestMicrophone_Click"
+                                        Cursor="Hand"
+                                        ToolTip="Test microphone device"
+                                        Style="{StaticResource PrimaryButtonStyle}"/>
+                            </Grid>
+                            <TextBlock x:Name="MicrophoneTestStatus" 
+                                       Text="Not Tested" 
+                                       VerticalAlignment="Center" 
+                                       Margin="0,0,0,15" 
+                                       Foreground="#6B7A94"
+                                       FontSize="11"/>
+                            
+                            <!-- Speaker Device -->
+                            <TextBlock Text="Speaker Device" 
+                                      FontWeight="SemiBold" 
+                                      Foreground="#00D4FF" 
+                                      Margin="0,0,0,8"/>
+                            <Grid Margin="0,0,0,10">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <Border Grid.Column="0"
+                                        Background="#1A2942" 
+                                        CornerRadius="6" 
+                                        Height="40"
+                                        BorderThickness="0"
+                                        Margin="0,0,5,0">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0"
+                                                  Text="🔊"
+                                                  FontSize="14"
+                                                  Foreground="#6B7A94"
+                                                  VerticalAlignment="Center"
+                                                  Margin="12,0,10,0" />
+                                        <ComboBox x:Name="SpeakerDeviceCombo" 
+                                                  SelectionChanged="SpeakerDevice_SelectionChanged"
+                                                  Grid.Column="1"
+                                                  FontSize="13"
+                                                  Padding="0,0,12,0"
+                                                  BorderThickness="0"
+                                                  Background="Transparent"
+                                                  Foreground="#8B9AAF"
+                                                  VerticalAlignment="Center"/>
+                                    </Grid>
+                                </Border>
+                                <Button x:Name="TestSpeakerButton" 
+                                        Grid.Column="1" 
+                                        Content="🧪 Test" 
+                                        Background="#00D4FF" 
+                                        Foreground="White" 
+                                        BorderThickness="0" 
+                                        Padding="12,8" 
+                                        FontSize="12"
+                                        Height="40"
+                                        MinWidth="90"
+                                        Click="TestSpeaker_Click"
+                                        Cursor="Hand"
+                                        ToolTip="Test speaker device"
+                                        Style="{StaticResource PrimaryButtonStyle}"/>
+                            </Grid>
+                            <TextBlock x:Name="SpeakerTestStatus" 
+                                       Text="Not Tested" 
+                                       VerticalAlignment="Center" 
+                                       Margin="0,0,0,15" 
+                                       Foreground="#6B7A94"
+                                       FontSize="11"/>
+                            
+        <!-- Audio Test Buttons -->
+        <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
+            <Button x:Name="ComprehensiveAudioTestButton" 
+                                        Content="🔍 Test All" 
+                                        Background="#00D4FF" 
+                    Foreground="White" 
+                    BorderThickness="0" 
+                                        Padding="16,8" 
+                                        FontSize="12"
+                                        Height="40"
+                                        MinWidth="120"
+                    Click="ComprehensiveAudioTest_Click"
+                    Cursor="Hand"
+                    Margin="0,0,10,0"
+                                        ToolTip="Test all audio devices for loopback capture compatibility"
+                                        Style="{StaticResource PrimaryButtonStyle}"/>
+            
+            <Button x:Name="DiagnoseSpeakerButton" 
+                                        Content="🔍 Diagnose" 
+                                        Background="#00D4FF" 
+                    Foreground="White" 
+                    BorderThickness="0" 
+                                        Padding="16,8" 
+                                        FontSize="12"
+                                        Height="40"
+                                        MinWidth="120"
+                    Click="DiagnoseSpeakerIssues_Click"
+                    Cursor="Hand"
+                                        ToolTip="Run comprehensive diagnostic on selected speaker device"
+                                        Style="{StaticResource PrimaryButtonStyle}"/>
+        </StackPanel>
+                            
+                            <!-- Audio Test Results with Copy Icon -->
+                            <Border BorderBrush="Transparent"
+                                    BorderThickness="0"
+                                    Background="#1A2942"
+                                    CornerRadius="6"
+                                    Margin="0,0,0,15">
+                                <Grid>
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto"/>
+                                        <RowDefinition Height="*"/>
+                                    </Grid.RowDefinitions>
+                                    
+                                    <!-- Header with Copy Icon -->
+                                    <Grid Grid.Row="0" Background="#132340">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        
+                                        <TextBlock Grid.Column="0" 
+                                                   Text="Test Loopback Capture Results" 
+                                                   FontWeight="SemiBold" 
+                                                   FontSize="12" 
+                                                   Foreground="White"
+                                                   VerticalAlignment="Center"
+                                                   Margin="8,5"/>
+                                        
+                                        <Button x:Name="CopyResultsButton" 
+                                                Grid.Column="1"
+                                                Content="📋" 
+                                                Background="Transparent" 
+                                                Foreground="#8B9AAF" 
+                                                BorderThickness="0" 
+                                                Padding="8,4" 
+                                                FontSize="16"
+                                                Click="CopyResults_Click"
+                                                Cursor="Hand"
+                                                ToolTip="Copy diagnostic results to clipboard"
+                                                Width="32"
+                                                Height="28"
+                                                Margin="0,0,5,0">
+                                            <Button.Style>
+                                                <Style TargetType="Button">
+                                                    <Setter Property="Background" Value="Transparent"/>
+                                                    <Style.Triggers>
+                                                        <Trigger Property="IsMouseOver" Value="True">
+                                                            <Setter Property="Background" Value="#3A4A64"/>
+                                                        </Trigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </Button.Style>
+                                        </Button>
+                                    </Grid>
+                                    
+                                    <!-- Results Area -->
+                                    <ScrollViewer x:Name="AudioTestResults" 
+                                                  Grid.Row="1"
+                                                  Height="200" 
+                                                  VerticalScrollBarVisibility="Auto" 
+                                                  HorizontalScrollBarVisibility="Disabled"
+                                                  Background="#132340"
+                                                  Padding="10">
+                                        <TextBlock x:Name="AudioTestResultsText" 
+                                                   Text="Click 'Test All Audio Devices' to see detailed compatibility results..." 
+                                                   TextWrapping="Wrap" 
+                                                   FontFamily="Consolas" 
+                                                   FontSize="11" 
+                                                   Foreground="#6B7A94"/>
+                                    </ScrollViewer>
+                                </Grid>
+                            </Border>
+                            
+                        </StackPanel>
+                    </Border>
+
+                </StackPanel>
+            </Grid>
+        </ScrollViewer>
+
+        <!-- Status Bar -->
+        <Border Grid.Row="2"
+                Background="#132340"
+                BorderBrush="Transparent"
+                BorderThickness="0"
+                Padding="15,10">
+            <TextBlock x:Name="StatusText" 
+                       Text="Configuration settings loaded" 
+                       Foreground="#8B9AAF" 
+                       FontSize="12"/>
+        </Border>
+
+        <!-- Toast Notification -->
+        <Border x:Name="ToastNotification"
+                Grid.Row="0"
+                Grid.RowSpan="3"
+                Background="#132340"
+                BorderBrush="#00D4FF"
+                BorderThickness="2"
+                CornerRadius="8"
+                Padding="20,15"
+                HorizontalAlignment="Center"
+                VerticalAlignment="Top"
+                Margin="0,20,0,0"
+                Visibility="Collapsed"
+                Opacity="0">
+            <Border.Effect>
+                <DropShadowEffect BlurRadius="10" ShadowDepth="5" Color="#00D4FF" Opacity="0.5"/>
+            </Border.Effect>
+            <StackPanel Orientation="Horizontal">
+                <TextBlock Text="✅" 
+                          FontSize="20" 
+                          Margin="0,0,12,0"
+                          VerticalAlignment="Center"/>
+                <TextBlock x:Name="ToastMessage"
+                          Text="Settings saved successfully!" 
+                          FontSize="14"
+                          FontWeight="SemiBold"
+                          Foreground="White"
+                          VerticalAlignment="Center"/>
+            </StackPanel>
+        </Border>
+    </Grid>
+</UserControl>

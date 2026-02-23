@@ -1,0 +1,421 @@
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:HelperControls="clr-namespace:DataRippleAIDesktop.HelperControls"
+        xmlns:av="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        mc:Ignorable="av"
+        x:Class="DataRippleAIDesktop.MainWindow"
+        Title="DataRipple - AI"
+        Icon="logo.png"
+        WindowState="Maximized"
+        AllowsTransparency="False"
+        Background="#132340"
+        ResizeMode="CanResize"
+        Topmost="false"
+        MinWidth="900"
+        MinHeight="600">
+
+    <Border Background="#132340"
+            BorderBrush="Transparent"
+            BorderThickness="0">
+        <Grid Margin="0,-1,0,-3">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="60" />
+                <!-- Custom Title Bar -->
+                <RowDefinition />
+                <!-- Main Content (sidebar + content + bottom bar) -->
+            </Grid.RowDefinitions>
+
+            <!-- Custom Title Bar -->
+            <Border Grid.Row="0"
+                    Background="#132340"
+                    BorderBrush="Transparent"
+                    BorderThickness="0"
+                    Margin="10,0,10,0">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+
+                    <!-- Logo/Back Button and Title -->
+                    <StackPanel Grid.Column="0"
+                                Orientation="Horizontal"
+                                VerticalAlignment="Center"
+                                Margin="20,0,0,0">
+                        <!-- Logo (visible on Voice Session / main pages) -->
+                        <Image x:Name="TitleBarLogo"
+                               Source="logo.png"
+                               Width="32"
+                               Height="32"
+                               Margin="0,0,12,0" />
+                        <!-- Back Button (visible on Settings/History pages, replaces logo) -->
+                        <Button x:Name="TitleBarBackButton"
+                                Width="32" Height="32"
+                                Background="#2A3A52"
+                                BorderThickness="0"
+                                Cursor="Hand"
+                                VerticalAlignment="Center"
+                                Margin="0,0,12,0"
+                                Visibility="Collapsed"
+                                Click="TitleBarBackButton_Click"
+                                ToolTip="Go Back">
+                            <Button.Template>
+                                <ControlTemplate TargetType="Button">
+                                    <Border x:Name="BackBtnBorder"
+                                            Background="{TemplateBinding Background}"
+                                            CornerRadius="16"
+                                            Width="32" Height="32">
+                                        <Viewbox Width="16" Height="16">
+                                            <Canvas Width="24" Height="24">
+                                                <Path Data="M20,11H7.83l5.59-5.59L12,4l-8,8l8,8l1.41-1.41L7.83,13H20V11z"
+                                                      Fill="White" />
+                                            </Canvas>
+                                        </Viewbox>
+                                    </Border>
+                                    <ControlTemplate.Triggers>
+                                        <Trigger Property="IsMouseOver" Value="True">
+                                            <Setter TargetName="BackBtnBorder" Property="Background" Value="#3A4A64" />
+                                        </Trigger>
+                                        <Trigger Property="IsPressed" Value="True">
+                                            <Setter TargetName="BackBtnBorder" Property="Background" Value="#1DB8B8" />
+                                        </Trigger>
+                                    </ControlTemplate.Triggers>
+                                </ControlTemplate>
+                            </Button.Template>
+                        </Button>
+                        <TextBlock x:Name="txtPageWelcome"
+                                   Text="DataRipple.AI"
+                                   FontSize="20"
+                                   FontWeight="SemiBold"
+                                   Foreground="White"
+                                   VerticalAlignment="Center" />
+                    </StackPanel>
+
+                    <!-- Status Indicators (Right) -->
+                    <StackPanel Grid.Column="1"
+                                Orientation="Horizontal"
+                                HorizontalAlignment="Right"
+                                VerticalAlignment="Center"
+                                Margin="0,0,20,0">
+                        <!-- Network Stats Indicator -->
+                        <HelperControls:NetworkStatsIndicator x:Name="NetworkStatsIndicator"
+                                                              Margin="0,0,15,0"
+                                                              VerticalAlignment="Center" />
+                        <!-- Live Call Indicator -->
+                        <Border x:Name="LiveCallIndicator"
+                                Background="#1F3A1F"
+                                BorderBrush="Transparent"
+                                BorderThickness="0"
+                                CornerRadius="20"
+                                Padding="12,6"
+                                Margin="0,0,15,0"
+                                Visibility="Collapsed">
+                            <StackPanel Orientation="Horizontal">
+                                <Ellipse Width="10"
+                                         Height="10"
+                                         Fill="#4CAF50"
+                                         Margin="0,0,8,0" />
+                                <TextBlock x:Name="txtCallDuration"
+                                           Text="Live Call: 02:34"
+                                           FontSize="13"
+                                           Foreground="#4CAF50"
+                                           FontWeight="Medium" />
+                            </StackPanel>
+                        </Border>
+                        <!-- End Call Button (title bar) -->
+                        <Button x:Name="btnEndCall"
+                                Height="36"
+                                Padding="16,0"
+                                Background="#DC3545"
+                                BorderThickness="0"
+                                Cursor="Hand"
+                                Visibility="Collapsed"
+                                Click="CallControl_Click">
+                            <Button.Style>
+                                <Style TargetType="{x:Type Button}">
+                                    <Setter Property="Template">
+                                        <Setter.Value>
+                                            <ControlTemplate TargetType="{x:Type Button}">
+                                                <Border Background="{TemplateBinding Background}"
+                                                        CornerRadius="18">
+                                                    <ContentPresenter HorizontalAlignment="Center"
+                                                                      VerticalAlignment="Center" />
+                                                </Border>
+                                            </ControlTemplate>
+                                        </Setter.Value>
+                                    </Setter>
+                                    <Style.Triggers>
+                                        <Trigger Property="IsMouseOver" Value="True">
+                                            <Setter Property="Background" Value="#C82333" />
+                                        </Trigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </Button.Style>
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="??"
+                                           FontSize="14"
+                                           Margin="0,0,8,0" />
+                                <TextBlock Text="End Call"
+                                           FontSize="13"
+                                           FontWeight="SemiBold"
+                                           Foreground="White" />
+                            </StackPanel>
+                        </Button>
+                    </StackPanel>
+
+                    <!-- User Avatar (hidden during login, shown after authentication) -->
+                    <Border x:Name="UserAvatarButton"
+                            Grid.Column="2"
+                            Width="38" Height="38"
+                            CornerRadius="19"
+                            Background="#2A3A52"
+                            Cursor="Hand"
+                            VerticalAlignment="Center"
+                            Margin="0,0,10,0"
+                            Visibility="Collapsed"
+                            MouseLeftButtonUp="UserAvatar_Click"
+                            ToolTip="Account">
+                        <TextBlock x:Name="txtUserInitials"
+                                   Text="U"
+                                   FontSize="15"
+                                   FontWeight="SemiBold"
+                                   Foreground="White"
+                                   HorizontalAlignment="Center"
+                                   VerticalAlignment="Center" />
+                    </Border>
+
+                    <!-- User Avatar Dropdown Popup -->
+                    <Popup x:Name="UserAvatarPopup"
+                           PlacementTarget="{Binding ElementName=UserAvatarButton}"
+                           Placement="Bottom"
+                           HorizontalOffset="-200"
+                           VerticalOffset="6"
+                           StaysOpen="False"
+                           AllowsTransparency="True"
+                           PopupAnimation="Fade">
+                        <Border Background="#1A2942"
+                                BorderBrush="#2A3A52"
+                                BorderThickness="1"
+                                CornerRadius="10"
+                                Width="260"
+                                Padding="0">
+                            <Border.Effect>
+                                <DropShadowEffect BlurRadius="16"
+                                                  ShadowDepth="4"
+                                                  Opacity="0.4"
+                                                  Color="Black" />
+                            </Border.Effect>
+                            <StackPanel>
+                                <!-- User Info Section -->
+                                <StackPanel Orientation="Horizontal"
+                                            Margin="18,18,18,14">
+                                    <!-- Avatar circle in dropdown -->
+                                    <Border Width="42" Height="42"
+                                            CornerRadius="21"
+                                            Background="#2A3A52"
+                                            Margin="0,0,12,0"
+                                            VerticalAlignment="Center">
+                                        <TextBlock x:Name="txtDropdownInitials"
+                                                   Text="U"
+                                                   FontSize="16"
+                                                   FontWeight="SemiBold"
+                                                   Foreground="White"
+                                                   HorizontalAlignment="Center"
+                                                   VerticalAlignment="Center" />
+                                    </Border>
+                                    <!-- Name and Email -->
+                                    <StackPanel VerticalAlignment="Center"
+                                                MaxWidth="170">
+                                        <TextBlock x:Name="txtDropdownUserName"
+                                                   Text="User"
+                                                   FontSize="14"
+                                                   FontWeight="SemiBold"
+                                                   Foreground="White"
+                                                   TextTrimming="CharacterEllipsis" />
+                                        <TextBlock x:Name="txtDropdownUserEmail"
+                                                   Text="user@example.com"
+                                                   FontSize="12"
+                                                   Foreground="#6B7A94"
+                                                   Margin="0,2,0,0"
+                                                   TextTrimming="CharacterEllipsis" />
+                                    </StackPanel>
+                                </StackPanel>
+
+                                <!-- Separator -->
+                                <Border Height="1"
+                                        Background="#2A3A52"
+                                        Margin="12,0,12,0" />
+
+                                <!-- Log Out Button -->
+                                <Border x:Name="btnDropdownLogout"
+                                        Cursor="Hand"
+                                        Margin="8,6,8,8"
+                                        CornerRadius="6"
+                                        Background="Transparent"
+                                        MouseLeftButtonUp="DropdownLogout_Click"
+                                        MouseEnter="DropdownLogout_MouseEnter"
+                                        MouseLeave="DropdownLogout_MouseLeave">
+                                    <StackPanel Orientation="Horizontal"
+                                                Margin="10,10,10,10">
+                                        <!-- Exit/Logout Icon (arrow pointing outward) -->
+                                        <Viewbox Width="18" Height="18"
+                                                 Margin="0,0,10,0">
+                                            <Canvas Width="24" Height="24">
+                                                <Path Data="M17,7l-1.41,1.41L18.17,11H8v2h10.17l-2.58,2.58L17,17l5-5L17,7z M4,5h8V3H4C2.9,3,2,3.9,2,5v14c0,1.1,0.9,2,2,2h8v-2H4V5z"
+                                                      Fill="White" />
+                                            </Canvas>
+                                        </Viewbox>
+                                        <TextBlock Text="Log out"
+                                                   FontSize="13"
+                                                   Foreground="White"
+                                                   FontWeight="Medium"
+                                                   VerticalAlignment="Center" />
+                                    </StackPanel>
+                                </Border>
+                            </StackPanel>
+                        </Border>
+                    </Popup>
+
+                    <!-- Window Controls -->
+                    <StackPanel Grid.Column="3"
+                                Orientation="Horizontal"
+                                HorizontalAlignment="Right"
+                                WindowChrome.IsHitTestVisibleInChrome="True" />
+                </Grid>
+            </Border>
+
+            <!-- Main Content Area: Left Sidebar + Content + Bottom Instructions -->
+            <Grid Grid.Row="1">
+                <Grid.ColumnDefinitions>
+                    <!-- Left Sidebar -->
+                    <ColumnDefinition Width="Auto" />
+                    <!-- Content Area -->
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+
+                <!-- Left Sidebar (hidden during login) -->
+                <Border x:Name="LeftSidebar"
+                        Grid.Column="0"
+                        Background="#132340"
+                        BorderBrush="Transparent"
+                        BorderThickness="0"
+                        Width="60"
+                        Visibility="Collapsed">
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="*" />
+                            <!-- Top spacer -->
+                            <RowDefinition Height="Auto" />
+                            <!-- Centered navigation buttons -->
+                            <RowDefinition Height="*" />
+                            <!-- Bottom spacer (logout anchored at bottom) -->
+                        </Grid.RowDefinitions>
+
+                        <!-- Centered Navigation Icons -->
+                        <StackPanel Grid.Row="1"
+                                    HorizontalAlignment="Center"
+                                    VerticalAlignment="Center">
+
+                            <!-- Start Call / End Call Button -->
+                            <Border x:Name="SidebarCallButtonBorder"
+                                    Width="36" Height="36"
+                                    Background="Transparent"
+                                    CornerRadius="8"
+                                    Margin="0,0,0,16"
+                                    Cursor="Hand"
+                                    MouseLeftButtonUp="CallControl_Click"
+                                    ToolTip="Start Call">
+                                <Viewbox Width="20" Height="20">
+                                    <Canvas Width="24" Height="24">
+                                        <Path x:Name="SidebarCallIcon"
+                                              Data="M6.62,10.79C8.06,13.62 10.38,15.94 13.21,17.38L15.41,15.18C15.69,14.9 16.08,14.82 16.43,14.93C17.55,15.3 18.75,15.5 20,15.5C20.55,15.5 21,15.95 21,16.5V20C21,20.55 20.55,21 20,21C10.61,21 3,13.39 3,4C3,3.45 3.45,3 4,3H7.5C8.05,3 8.5,3.45 8.5,4C8.5,5.25 8.7,6.45 9.07,7.57C9.18,7.92 9.1,8.31 8.82,8.59L6.62,10.79Z"
+                                              Fill="#4CAF50" />
+                                    </Canvas>
+                                </Viewbox>
+                            </Border>
+
+                            <!-- Settings Icon -->
+                            <Border x:Name="SidebarSettingsButtonBorder"
+                                    Width="36" Height="36"
+                                    Background="Transparent"
+                                    CornerRadius="8"
+                                    Margin="0,0,0,16"
+                                    Cursor="Hand"
+                                    MouseLeftButtonUp="btnSettings_Click"
+                                    ToolTip="Settings">
+                                <Viewbox Width="20" Height="20">
+                                    <Canvas Width="24" Height="24">
+                                        <Path Data="M19.14,12.94c0.04-0.3,0.06-0.61,0.06-0.94c0-0.32-0.02-0.64-0.07-0.94l2.03-1.58c0.18-0.14,0.23-0.41,0.12-0.61 l-1.92-3.32c-0.12-0.22-0.37-0.29-0.59-0.22l-2.39,0.96c-0.5-0.38-1.03-0.7-1.62-0.94L14.4,2.81c-0.04-0.24-0.24-0.41-0.48-0.41 h-3.84c-0.24,0-0.43,0.17-0.47,0.41L9.25,5.35C8.66,5.59,8.12,5.92,7.63,6.29L5.24,5.33c-0.22-0.08-0.47,0-0.59,0.22L2.74,8.87 C2.62,9.08,2.66,9.34,2.86,9.48l2.03,1.58C4.84,11.36,4.8,11.69,4.8,12s0.02,0.64,0.07,0.94l-2.03,1.58 c-0.18,0.14-0.23,0.41-0.12,0.61l1.92,3.32c0.12,0.22,0.37,0.29,0.59,0.22l2.39-0.96c0.5,0.38,1.03,0.7,1.62,0.94l0.36,2.54 c0.05,0.24,0.24,0.41,0.48,0.41h3.84c0.24,0,0.44-0.17,0.47-0.41l0.36-2.54c0.59-0.24,1.13-0.56,1.62-0.94l2.39,0.96 c0.22,0.08,0.47,0,0.59-0.22l1.92-3.32c0.12-0.22,0.07-0.47-0.12-0.61L19.14,12.94z M12,15.6c-1.98,0-3.6-1.62-3.6-3.6 s1.62-3.6,3.6-3.6s3.6,1.62,3.6,3.6S13.98,15.6,12,15.6z"
+                                              Fill="#00D4FF" />
+                                    </Canvas>
+                                </Viewbox>
+                            </Border>
+
+                            <!-- History Icon -->
+                            <Border x:Name="SidebarHistoryButtonBorder"
+                                    Width="36" Height="36"
+                                    Background="Transparent"
+                                    CornerRadius="8"
+                                    Cursor="Hand"
+                                    MouseLeftButtonUp="btnHistory_Click"
+                                    ToolTip="History">
+                                <Viewbox Width="20" Height="20">
+                                    <Canvas Width="24" Height="24">
+                                        <Path Data="M13,3C9.25,3 6.2,5.91 6.02,9.62L4.1,7.71L2.69,9.13L7,13.41L11.31,9.13L9.9,7.71L7.99,9.62C8.16,6.75 10.54,4.5 13.5,4.5C16.66,4.5 19.25,7.09 19.25,10.25C19.25,13.41 16.66,16 13.5,16H2V17.5H13.5C17.5,17.5 20.75,14.25 20.75,10.25C20.75,6.25 17.5,3 13,3M14,7V12.42L17.79,14.8L18.5,13.63L15.25,11.61V7H14Z"
+                                              Fill="#6B7A94" />
+                                    </Canvas>
+                                </Viewbox>
+                            </Border>
+
+                        </StackPanel>
+
+                        <!-- Bottom spacer (logout removed - now in title bar avatar dropdown) -->
+                        <StackPanel Grid.Row="2"
+                                    HorizontalAlignment="Center"
+                                    VerticalAlignment="Bottom"
+                                    Margin="0,0,0,16" />
+                    </Grid>
+                </Border>
+
+                <!-- Right Side: Content + Bottom Bar -->
+                <Grid Grid.Column="1">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="*" />
+                        <!-- Main Content -->
+                        <RowDefinition Height="Auto" />
+                        <!-- Bottom Instructional Bar -->
+                    </Grid.RowDefinitions>
+
+                    <!-- Main Content Area -->
+                    <Border x:Name="MainFrame"
+                            Grid.Row="0"
+                            Background="#132340"
+                            Margin="0">
+                        <DockPanel x:Name="MainFrameDockPanel"
+                                   LastChildFill="True" />
+                    </Border>
+
+                    <!-- Bottom Bar (instructional text only, preserved per Task 3) -->
+                    <Border x:Name="FrameBottomBar"
+                            Grid.Row="1"
+                            Background="#132340"
+                            BorderBrush="Transparent"
+                            BorderThickness="0"
+                            Padding="0,12,0,12"
+                            Visibility="Collapsed">
+                        <TextBlock x:Name="txtInstructions"
+                                   Text="Press Start Call to continue"
+                                   HorizontalAlignment="Center"
+                                   FontSize="13"
+                                   FontWeight="Medium"
+                                   Foreground="#00D4FF"
+                                   Margin="0" />
+                    </Border>
+                </Grid>
+            </Grid>
+        </Grid>
+    </Border>
+</Window>

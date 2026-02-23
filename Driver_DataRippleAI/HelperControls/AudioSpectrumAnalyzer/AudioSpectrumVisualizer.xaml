@@ -1,0 +1,22 @@
+﻿<UserControl
+    x:Class="DataRippleAIDesktop.HelperControls.AudioSpectrumAnalyzer.AudioSpectrumVisualizer"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:local="clr-namespace:DataRippleAIDesktop.HelperControls.AudioSpectrumAnalyzer"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    Width="176"
+    Height="50"
+    mc:Ignorable="d">
+    <Grid Margin="0,0,166,225">
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="69*" />
+            <ColumnDefinition Width="101*" />
+            <ColumnDefinition Width="208*" />
+            <ColumnDefinition Width="58*" />
+            <ColumnDefinition Width="0*" />
+            <ColumnDefinition Width="0*" />
+        </Grid.ColumnDefinitions>
+
+    </Grid>
+</UserControl>
