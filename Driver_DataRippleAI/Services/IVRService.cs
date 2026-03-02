@@ -399,6 +399,28 @@ namespace DataRippleAIDesktop.Services
         }
 
         /// <summary>
+        /// Publicly stop ringing tone and clear ringing state without firing call events.
+        /// Used when the backend accepts/rejects/ends the call and the local IVR ringing
+        /// needs to be silenced without triggering CallAnswered or CallRejected events.
+        /// </summary>
+        public void StopRinging()
+        {
+            try
+            {
+                if (_isRinging)
+                {
+                    LoggingService.Info("[IVR] StopRinging called - stopping ringing tone from external trigger");
+                    StopRingingTone();
+                    _isRinging = false;
+                }
+            }
+            catch (Exception ex)
+            {
+                LoggingService.Error($"[IVR] Error in StopRinging: {ex.Message}");
+            }
+        }
+
+        /// <summary>
         /// Check if currently ringing
         /// </summary>
         public bool IsRinging()

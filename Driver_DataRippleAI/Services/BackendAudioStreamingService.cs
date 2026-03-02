@@ -107,7 +107,28 @@ namespace DataRippleAIDesktop.Services
         // Active call tracking for call_ended event
         private string _activeCallId = null;
 
-        // Store last call_started params for re-send after reconnection
+        // Audio gating: only send audio_chunk after call_accepted, reset on call_ended/call_rejected
+        private volatile bool _callAccepted = false;
+
+        // Microphone mute gate: when true, mic audio chunks are silently dropped (speaker audio continues)
+        private volatile bool _isMicrophoneMuted = false;
+
+        /// <summary>
+        /// Gets or sets whether the microphone audio is muted.
+        /// When muted, microphone audio chunks are silently dropped (not sent to backend).
+        /// Speaker audio is unaffected.
+        /// </summary>
+        public bool IsMicrophoneMuted
+        {
+            get => _isMicrophoneMuted;
+            set
+            {
+                _isMicrophoneMuted = value;
+                LoggingService.Info($"[BackendAudio] Microphone mute state changed: {(value ? "MUTED" : "UNMUTED")}");
+            }
+        }
+
+        // Store last call_incoming params for re-send after reconnection
         private string _lastCallId;
         private string _lastCsrId;
         private object _lastCustomer;
@@ -121,7 +142,9 @@ namespace DataRippleAIDesktop.Services
             Disconnected,
             Connecting,
             Connected,
-            Reconnecting
+            Reconnecting,
+            Ringing,
+            Active
         }
 
         private ConnectionState _connectionState = ConnectionState.Disconnected;
@@ -156,6 +179,18 @@ namespace DataRippleAIDesktop.Services
 
         /// <summary>Fired after each audio chunk is sent, with the WebSocket send latency in milliseconds.</summary>
         public event Action<double> AudioChunkLatencyMeasured;
+
+        /// <summary>Fired when the backend sends call_ended (dashboard ended the call). Parameters: callId, reason, durationSecs.</summary>
+        public event Action<string, string, int> CallEndedReceived;
+
+        /// <summary>Fired when the backend sends call_accepted (dashboard accepted the call). Parameters: callId, sessionId, conversationId, agentId.</summary>
+        public event Action<string, string, string, string> CallAcceptedReceived;
+
+        /// <summary>Fired when the backend sends call_rejected (dashboard rejected the call). Parameters: callId, reason.</summary>
+        public event Action<string, string> CallRejectedReceived;
+
+        /// <summary>Fired when the backend ACKs call_incoming. Parameters: callId, sessionId.</summary>
+        public event Action<string, string> CallIncomingAcked;
 
         // =====================================================================
         // Public properties
@@ -414,7 +449,7 @@ namespace DataRippleAIDesktop.Services
         /// Optional JWT token. Pass <c>null</c> to use <see cref="Globals.BackendAccessToken"/>.
         /// </param>
         /// <returns>True if connected successfully, false otherwise.</returns>
-        public async Task<bool> ConnectAsync(string jwtToken)
+        public async Task<bool> ConnectAsync(string jwtToken = null)
         {
             try
             {
@@ -635,15 +670,18 @@ namespace DataRippleAIDesktop.Services
         /// <param name="csrId">CSR/agent user ID.</param>
         /// <param name="customer">Customer info dictionary (name, phone, account_id).</param>
         /// <param name="employee">Employee info dictionary (name, id, department).</param>
-        public async Task<bool> SendCallStartedAsync(string callId, string csrId, object customer, object employee)
+        public async Task<bool> SendCallIncomingAsync(string callId, string csrId, object customer, object employee)
         {
             try
             {
                 if (!IsConnected) return false;
 
-                var callStarted = new
+                // Reset audio gate — audio will only flow after call_accepted
+                _callAccepted = false;
+
+                var callIncoming = new
                 {
-                    event_type = "call_started",
+                    event_type = "call_incoming",
                     call_id = callId,
                     csr_id = csrId,
                     customer = customer,
@@ -651,10 +689,10 @@ namespace DataRippleAIDesktop.Services
                     timestamp = DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ss.fffZ")
                 };
 
-                string json = JsonSerializer.Serialize(callStarted);
-                LoggingService.Info($"[BackendAudio] Sending call_started JSON: {json}");
+                string json = JsonSerializer.Serialize(callIncoming);
+                LoggingService.Info($"[BackendAudio] Sending call_incoming JSON: {json}");
 
-                await SendJsonMessageAsync(callStarted);
+                await SendJsonMessageAsync(callIncoming);
                 _activeCallId = callId;
 
                 // Store params for re-send after reconnection
@@ -663,12 +701,16 @@ namespace DataRippleAIDesktop.Services
                 _lastCustomer = customer;
                 _lastEmployee = employee;
 
-                LoggingService.Info($"[BackendAudio] call_started sent successfully - call_id: {callId}");
+                LoggingService.Info($"[BackendAudio] call_incoming sent successfully - call_id: {callId}");
+
+                // Transition to Ringing state per protocol state machine
+                SetConnectionState(ConnectionState.Ringing);
+
                 return true;
             }
             catch (Exception ex)
             {
-                LoggingService.Error($"[BackendAudio] Error sending call_started: {ex.Message}");
+                LoggingService.Error($"[BackendAudio] Error sending call_incoming: {ex.Message}");
                 return false;
             }
         }
@@ -676,7 +718,7 @@ namespace DataRippleAIDesktop.Services
         /// <summary>
         /// Send a <c>call_ended</c> event to the backend to end the active call session.
         /// </summary>
-        /// <param name="callId">Call ID to end. If null, uses the active call ID from <see cref="SendCallStartedAsync"/>.</param>
+        /// <param name="callId">Call ID to end. If null, uses the active call ID from <see cref="SendCallIncomingAsync"/>.</param>
         /// <param name="reason">Reason for ending the call (default: "completed").</param>
         public async Task<bool> SendCallEndedAsync(string callId = null, string reason = "completed")
         {
@@ -709,6 +751,11 @@ namespace DataRippleAIDesktop.Services
                 await SendJsonMessageAsync(callEnded);
                 LoggingService.Info($"[BackendAudio] call_ended sent successfully - call_id: {effectiveCallId}, reason: {reason}");
                 _activeCallId = null;
+                _callAccepted = false;
+
+                // Transition back to Connected (idle) per protocol state machine
+                SetConnectionState(ConnectionState.Connected);
+
                 // Clear stored call params so reconnection doesn't re-send call_started
                 _lastCallId = null;
                 _lastCsrId = null;
@@ -742,6 +789,12 @@ namespace DataRippleAIDesktop.Services
                 return false;
             }
 
+            // Drop mic audio when muted (speaker audio continues unaffected)
+            if (_isMicrophoneMuted)
+            {
+                return true; // Silently succeed — caller doesn't need to know
+            }
+
             return await SendAudioChunkAsync(audioData, "microphone");
         }
 
@@ -773,6 +826,12 @@ namespace DataRippleAIDesktop.Services
         {
             try
             {
+                // Audio gating: only send after call_accepted (protocol requirement)
+                if (!_callAccepted)
+                {
+                    return false;
+                }
+
                 // Quick pre-lock checks to avoid acquiring the semaphore unnecessarily
                 if (_webSocket?.State != WebSocketState.Open)
                 {
@@ -1036,8 +1095,26 @@ namespace DataRippleAIDesktop.Services
 
                     switch (messageType)
                     {
+                        case "connected":
+                            HandleConnectedResponse(root, message);
+                            break;
+
                         case "call_started":
                             HandleCallStartedResponse(root, message);
+                            break;
+
+                        case "call_incoming":
+                            HandleCallIncomingAckResponse(root, message);
+                            break;
+
+                        case "call_accepted":
+                        case "call_accept":
+                            HandleCallAcceptedResponse(root, message);
+                            break;
+
+                        case "call_rejected":
+                        case "call_reject":
+                            HandleCallRejectedResponse(root, message);
                             break;
 
                         case "call_ended":
@@ -1078,6 +1155,13 @@ namespace DataRippleAIDesktop.Services
             }
         }
 
+        private void HandleConnectedResponse(JsonElement root, string rawJson)
+        {
+            string userId = root.TryGetProperty("user_id", out var uidProp) ? uidProp.GetString() : null;
+            string msg = root.TryGetProperty("message", out var msgProp) ? msgProp.GetString() : null;
+            LoggingService.Info($"[BackendAudio] Backend connected event - user_id: {userId}, message: {msg}");
+        }
+
         private void HandleCallStartedResponse(JsonElement root, string rawJson)
         {
             string sessionId = root.TryGetProperty("session_id", out var sidProp) ? sidProp.GetString() : null;
@@ -1087,12 +1171,65 @@ namespace DataRippleAIDesktop.Services
             SessionStatusReceived?.Invoke(status ?? "active", rawJson);
         }
 
+        private void HandleCallIncomingAckResponse(JsonElement root, string rawJson)
+        {
+            string callId = root.TryGetProperty("call_id", out var cidProp) ? cidProp.GetString() : null;
+            string sessionId = root.TryGetProperty("session_id", out var sidProp) ? sidProp.GetString() : null;
+            string status = root.TryGetProperty("status", out var statusProp) ? statusProp.GetString() : null;
+            LoggingService.Info($"[BackendAudio] call_incoming ACK received - call_id: {callId}, session_id: {sessionId}, status: {status}");
+            CallIncomingAcked?.Invoke(callId, sessionId);
+        }
+
+        private void HandleCallAcceptedResponse(JsonElement root, string rawJson)
+        {
+            string callId = root.TryGetProperty("call_id", out var cidProp) ? cidProp.GetString() : null;
+            string sessionId = root.TryGetProperty("session_id", out var sidProp) ? sidProp.GetString() : null;
+            string conversationId = root.TryGetProperty("conversation_id", out var convProp) ? convProp.GetString() : null;
+            string agentId = root.TryGetProperty("agent_id", out var agentProp) ? agentProp.GetString() : null;
+            LoggingService.Info($"[BackendAudio] call_accepted received - call_id: {callId}, session_id: {sessionId}, conversation_id: {conversationId}, agent_id: {agentId}");
+
+            // Open the audio gate — audio_chunk events can now be sent
+            _callAccepted = true;
+
+            // Transition to Active state per protocol state machine
+            SetConnectionState(ConnectionState.Active);
+
+            CallAcceptedReceived?.Invoke(callId, sessionId, conversationId, agentId);
+        }
+
+        private void HandleCallRejectedResponse(JsonElement root, string rawJson)
+        {
+            string callId = root.TryGetProperty("call_id", out var cidProp) ? cidProp.GetString() : null;
+            string reason = root.TryGetProperty("reason", out var rProp) ? rProp.GetString() : null;
+            LoggingService.Info($"[BackendAudio] call_rejected received - call_id: {callId}, reason: {reason}");
+
+            // Close the audio gate and clear active call
+            _callAccepted = false;
+            _activeCallId = null;
+            _lastCallId = null;
+
+            // Transition back to Connected (idle) per protocol state machine
+            SetConnectionState(ConnectionState.Connected);
+
+            CallRejectedReceived?.Invoke(callId, reason);
+        }
+
         private void HandleCallEndedResponse(JsonElement root, string rawJson)
         {
             string callId = root.TryGetProperty("call_id", out var cidProp) ? cidProp.GetString() : null;
             string reason = root.TryGetProperty("reason", out var rProp) ? rProp.GetString() : null;
             int duration = root.TryGetProperty("duration_secs", out var dProp) ? dProp.GetInt32() : 0;
-            LoggingService.Info($"[BackendAudio] Backend confirmed call_ended - call_id: {callId}, reason: {reason}, duration: {duration}s");
+            LoggingService.Info($"[BackendAudio] call_ended received - call_id: {callId}, reason: {reason}, duration: {duration}s");
+
+            // Close the audio gate and clear active call
+            _callAccepted = false;
+            _activeCallId = null;
+            _lastCallId = null;
+
+            // Transition back to Connected (idle) per protocol state machine
+            SetConnectionState(ConnectionState.Connected);
+
+            CallEndedReceived?.Invoke(callId, reason, duration);
         }
 
         private void HandleTranscriptMessage(JsonElement root, string rawJson)
@@ -1325,7 +1462,7 @@ namespace DataRippleAIDesktop.Services
                 else
                 {
                     LoggingService.Warn($"[BackendAudio] Cannot send call_ended - socket already closed (State: {_webSocket?.State}), call_id: {_activeCallId}");
-                    // Don't clear _activeCallId — reconnection will re-send call_started
+                    // Don't clear _activeCallId — reconnection will re-send call_incoming
                 }
             }
 
@@ -1373,17 +1510,17 @@ namespace DataRippleAIDesktop.Services
                         _reconnectionAttempts = 0;
                         _connectionLostTime = DateTime.MinValue;
 
-                        // Re-send call_started if a call was active when the connection dropped
+                        // Re-send call_incoming if a call was active when the connection dropped
                         if (!string.IsNullOrEmpty(_lastCallId))
                         {
                             try
                             {
-                                LoggingService.Info($"[BackendAudio] Re-sending call_started after reconnection - call_id: {_lastCallId}");
-                                await SendCallStartedAsync(_lastCallId, _lastCsrId, _lastCustomer, _lastEmployee);
+                                LoggingService.Info($"[BackendAudio] Re-sending call_incoming after reconnection - call_id: {_lastCallId}");
+                                await SendCallIncomingAsync(_lastCallId, _lastCsrId, _lastCustomer, _lastEmployee);
                             }
                             catch (Exception csEx)
                             {
-                                LoggingService.Warn($"[BackendAudio] Failed to re-send call_started after reconnection: {csEx.Message}");
+                                LoggingService.Warn($"[BackendAudio] Failed to re-send call_incoming after reconnection: {csEx.Message}");
                             }
                         }
 

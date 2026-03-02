@@ -33,12 +33,17 @@ namespace DataRippleAIDesktop
         private TokenRefreshService _tokenRefreshService = null;
         private NetworkStatsService _networkStatsService = null;
         private BackendApiHealthCheckService _backendApiHealthCheck = null;
+        private CallNotificationService _callNotificationService = null;
+        private BackendAudioStreamingService _backendAudioStreamingService = null;
         
         private VoiceSessionPage VoiceSessionPage { get; set; } = null;
         private bool IsCurretlySelected { get; set; } = false;
         private CurrentPage _CurrentPage { get; set; }
         // Timer field removed - no longer needed
         
+        // Active call popup (shown when main window is minimized during an active call)
+        private ActiveCallPopupWindow _activeCallPopup = null;
+
         // System Tray
         private NotifyIcon _notifyIcon = null;
         private bool _isClosing = false;
@@ -629,21 +634,24 @@ namespace DataRippleAIDesktop
         {
             try
             {
+                // Close the active call popup if it's showing (main window is being restored)
+                CloseActiveCallPopup();
+
                 // Make window visible and restore from minimized state
                 this.Visibility = Visibility.Visible;
                 this.ShowInTaskbar = true;
-                
+
                 if (this.WindowState == WindowState.Minimized)
                 {
                     this.WindowState = WindowState.Normal;
                 }
-                
+
                 this.Show();
                 this.Activate();
             this.WindowState = WindowState.Maximized;
                 this.BringIntoView();
                 this.Focus();
-                
+
                 LoggingService.Info("[MainWindow] Window shown from system tray");
             }
             catch (Exception ex)
@@ -662,7 +670,18 @@ namespace DataRippleAIDesktop
                 this.Hide();
                 this.ShowInTaskbar = false;
                 LoggingService.Info("[MainWindow] Window hidden to system tray");
-                
+
+                // Show active call popup if a call is in progress
+                if (IsCallActive())
+                {
+                    ShowActiveCallPopup();
+                }
+                // Show ringing popup if a call is ringing (initializing / incoming call)
+                else if (_isInitializing && VoiceSessionPage != null && VoiceSessionPage.IsRinging)
+                {
+                    ShowRingingPopup();
+                }
+
                 // Show notification that app is minimized to tray
                 Dispatcher.BeginInvoke(new Action(() =>
                 {
@@ -690,7 +709,10 @@ namespace DataRippleAIDesktop
             try
             {
                 _isClosing = true;
-                
+
+                // Close active call popup if showing
+                CloseActiveCallPopup();
+
                 // Stop notification listener
                 if (_notificationListenerTimer != null)
                 {
@@ -1239,6 +1261,12 @@ namespace DataRippleAIDesktop
                 // Stop backend API health check
                 StopBackendApiHealthCheck();
 
+                // Stop call notification service
+                StopCallNotificationService();
+
+                // Stop persistent BackendAudioStreamingService
+                StopBackendAudioService();
+
                 // Dispose token refresh service
                 if (_tokenRefreshService != null)
                 {
@@ -1426,6 +1454,510 @@ namespace DataRippleAIDesktop
 
         #endregion
 
+        #region Call Notification Service
+
+        /// <summary>
+        /// Initializes and starts the CallNotificationService WebSocket connection.
+        /// Connects to /ws/{user_id}?role=Driver to receive call_accepted, call_rejected,
+        /// and call_ended events from the backend/dashboard.
+        /// </summary>
+        private void StartCallNotificationService()
+        {
+            try
+            {
+                // Check if call notifications are enabled in config
+                var config = Globals.ConfigurationInfo;
+                bool enabled = config?.GetSection("CallNotification")?.GetValue<bool>("EnableCallNotification", true) ?? true;
+                if (!enabled)
+                {
+                    LoggingService.Info("[MainWindow] Call notification WebSocket is disabled in configuration");
+                    return;
+                }
+
+                // Dispose existing instance
+                StopCallNotificationService();
+
+                _callNotificationService = CallNotificationService.CreateFromConfiguration();
+
+                // Subscribe to events
+                _callNotificationService.CallAccepted += OnCallNotificationAccepted;
+                _callNotificationService.CallRejected += OnCallNotificationRejected;
+                _callNotificationService.CallEnded += OnCallNotificationEnded;
+                _callNotificationService.ErrorReceived += OnCallNotificationError;
+                _callNotificationService.StateChanged += OnCallNotificationStateChanged;
+                _callNotificationService.CallIncomingAcked += OnCallNotificationIncomingAcked;
+                _callNotificationService.Disconnected += OnCallNotificationDisconnected;
+
+                // Connect asynchronously
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        bool connected = await _callNotificationService.ConnectAsync(Globals.BackendAccessToken);
+                        if (connected)
+                        {
+                            LoggingService.Info("[MainWindow] CallNotificationService connected successfully");
+                        }
+                        else
+                        {
+                            LoggingService.Warn("[MainWindow] CallNotificationService connection failed - will retry automatically");
+                            Dispatcher.BeginInvoke(new Action(() =>
+                            {
+                                LoggingService.Warn("[MainWindow] CallNotification initial connection failed - reconnection in progress");
+                            }));
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        LoggingService.Error($"[MainWindow] CallNotificationService connection error: {ex.Message}");
+                        Dispatcher.BeginInvoke(new Action(() =>
+                        {
+                            LoggingService.Error($"[MainWindow] CallNotification connection error reported to UI: {ex.Message}");
+                        }));
+                    }
+                });
+
+                LoggingService.Info("[MainWindow] CallNotificationService initialization started");
+            }
+            catch (Exception ex)
+            {
+                LoggingService.Error($"[MainWindow] Error starting CallNotificationService: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Stops and disposes the CallNotificationService.
+        /// </summary>
+        private void StopCallNotificationService()
+        {
+            try
+            {
+                if (_callNotificationService != null)
+                {
+                    _callNotificationService.CallAccepted -= OnCallNotificationAccepted;
+                    _callNotificationService.CallRejected -= OnCallNotificationRejected;
+                    _callNotificationService.CallEnded -= OnCallNotificationEnded;
+                    _callNotificationService.ErrorReceived -= OnCallNotificationError;
+                    _callNotificationService.StateChanged -= OnCallNotificationStateChanged;
+                    _callNotificationService.CallIncomingAcked -= OnCallNotificationIncomingAcked;
+                    _callNotificationService.Disconnected -= OnCallNotificationDisconnected;
+                    _callNotificationService.Dispose();
+                    _callNotificationService = null;
+                    LoggingService.Info("[MainWindow] CallNotificationService stopped and disposed");
+                }
+            }
+            catch (Exception ex)
+            {
+                LoggingService.Error($"[MainWindow] Error stopping CallNotificationService: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Backend/dashboard accepted the call. Trigger accept on the driver side.
+        /// </summary>
+        private void OnCallNotificationAccepted(CallAcceptedEvent evt)
+        {
+            try
+            {
+                LoggingService.Info($"[MainWindow] Call accepted from backend - call_id: {evt.CallId}, session_id: {evt.SessionId}");
+
+                Dispatcher.BeginInvoke(new Action(async () =>
+                {
+                    try
+                    {
+                        if (VoiceSessionPage != null)
+                        {
+                            // Auto-accept the ringing call on the driver side
+                            await VoiceSessionPage.AcceptCallFromBackend(evt);
+                        }
+                        else
+                        {
+                            LoggingService.Warn("[MainWindow] VoiceSessionPage is null - cannot process call_accepted");
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        LoggingService.Error($"[MainWindow] Error processing call_accepted: {ex.Message}");
+                    }
+                }));
+            }
+            catch (Exception ex)
+            {
+                LoggingService.Error($"[MainWindow] Error handling call_accepted event: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Backend/dashboard rejected the call. Trigger reject on the driver side.
+        /// </summary>
+        private void OnCallNotificationRejected(CallRejectedEvent evt)
+        {
+            try
+            {
+                LoggingService.Info($"[MainWindow] Call rejected from backend - call_id: {evt.CallId}, reason: {evt.Reason}");
+
+                Dispatcher.BeginInvoke(new Action(async () =>
+                {
+                    try
+                    {
+                        if (VoiceSessionPage != null)
+                        {
+                            await VoiceSessionPage.RejectCallFromBackend(evt);
+                        }
+                        else
+                        {
+                            LoggingService.Warn("[MainWindow] VoiceSessionPage is null - cannot process call_rejected");
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        LoggingService.Error($"[MainWindow] Error processing call_rejected: {ex.Message}");
+                    }
+                }));
+            }
+            catch (Exception ex)
+            {
+                LoggingService.Error($"[MainWindow] Error handling call_rejected event: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Backend/dashboard ended the call. Trigger end on the driver side.
+        /// Note: We check both IsCallActive() and _isInitializing to cover the race window
+        /// where call_ended arrives before _isCallActive is set (see OnBackendAudioCallEnded).
+        /// </summary>
+        private void OnCallNotificationEnded(CallEndedInboundEvent evt)
+        {
+            try
+            {
+                LoggingService.Info($"[MainWindow] Call ended from backend - call_id: {evt.CallId}, reason: {evt.Reason}, duration: {evt.DurationSecs}s");
+
+                Dispatcher.BeginInvoke(new Action(async () =>
+                {
+                    try
+                    {
+                        if (VoiceSessionPage != null && (IsCallActive() || _isInitializing))
+                        {
+                            // End the active call - same as pressing End Call button
+                            LoggingService.Info("[MainWindow] Ending call from backend notification...");
+                            _isDisposing = true;
+                            SetCallButtonState(false);
+                            await VoiceSessionPage.EndCallFromBackend(evt);
+                        }
+                        else
+                        {
+                            LoggingService.Info("[MainWindow] No active/initializing call to end from backend notification");
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        LoggingService.Error($"[MainWindow] Error processing call_ended: {ex.Message}");
+                    }
+                }));
+            }
+            catch (Exception ex)
+            {
+                LoggingService.Error($"[MainWindow] Error handling call_ended event: {ex.Message}");
+            }
+        }
+
+        private void OnCallNotificationError(string errorMessage)
+        {
+            LoggingService.Error($"[MainWindow] CallNotification error: {errorMessage}");
+        }
+
+        private void OnCallNotificationStateChanged(CallNotificationState newState)
+        {
+            LoggingService.Info($"[MainWindow] CallNotification state changed to: {newState}");
+        }
+
+        /// <summary>
+        /// Backend acknowledged our call_incoming and assigned a session_id.
+        /// Pass this to VoiceSessionPage so the session_id can be used when starting audio streaming.
+        /// </summary>
+        private void OnCallNotificationIncomingAcked(CallIncomingAckEvent evt)
+        {
+            try
+            {
+                LoggingService.Info($"[MainWindow] call_incoming ACK received - call_id: {evt.CallId}, session_id: {evt.SessionId}");
+
+                Dispatcher.BeginInvoke(new Action(() =>
+                {
+                    try
+                    {
+                        if (VoiceSessionPage != null)
+                        {
+                            VoiceSessionPage.SetBackendSessionId(evt.SessionId);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        LoggingService.Error($"[MainWindow] Error processing call_incoming ACK: {ex.Message}");
+                    }
+                }));
+            }
+            catch (Exception ex)
+            {
+                LoggingService.Error($"[MainWindow] Error handling call_incoming ACK event: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// CallNotificationService WebSocket disconnected unexpectedly.
+        /// </summary>
+        private void OnCallNotificationDisconnected(string reason)
+        {
+            LoggingService.Warn($"[MainWindow] CallNotification WebSocket disconnected: {reason}");
+        }
+
+        /// <summary>
+        /// Provides the CallNotificationService to VoiceSessionPage for sending events.
+        /// </summary>
+        internal CallNotificationService GetCallNotificationService()
+        {
+            return _callNotificationService;
+        }
+
+        #endregion
+
+        #region Persistent BackendAudioStreamingService (login-scoped)
+
+        /// <summary>
+        /// Creates and connects a persistent BackendAudioStreamingService at login.
+        /// This single WebSocket to /ws/audio/{user_id}?token=jwt stays alive until logout.
+        /// </summary>
+        private void StartBackendAudioService()
+        {
+            try
+            {
+                StopBackendAudioService();
+
+                _backendAudioStreamingService = BackendAudioStreamingService.CreateFromConfiguration();
+
+                // Subscribe to call lifecycle events for routing to VoiceSessionPage
+                _backendAudioStreamingService.CallIncomingAcked += OnBackendAudioCallIncomingAcked;
+                _backendAudioStreamingService.CallAcceptedReceived += OnBackendAudioCallAccepted;
+                _backendAudioStreamingService.CallRejectedReceived += OnBackendAudioCallRejected;
+                _backendAudioStreamingService.CallEndedReceived += OnBackendAudioCallEnded;
+
+                // Connect asynchronously
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        bool connected = await _backendAudioStreamingService.ConnectAsync(Globals.BackendAccessToken);
+                        if (connected)
+                        {
+                            LoggingService.Info("[MainWindow] BackendAudioStreamingService connected at login (persistent)");
+                        }
+                        else
+                        {
+                            LoggingService.Warn("[MainWindow] BackendAudioStreamingService connection failed at login");
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        LoggingService.Error($"[MainWindow] BackendAudioStreamingService connection error: {ex.Message}");
+                    }
+                });
+
+                LoggingService.Info("[MainWindow] BackendAudioStreamingService initialization started (persistent)");
+            }
+            catch (Exception ex)
+            {
+                LoggingService.Error($"[MainWindow] Error starting BackendAudioStreamingService: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Stops and disposes the persistent BackendAudioStreamingService (logout/exit).
+        /// </summary>
+        private void StopBackendAudioService()
+        {
+            try
+            {
+                if (_backendAudioStreamingService != null)
+                {
+                    _backendAudioStreamingService.CallIncomingAcked -= OnBackendAudioCallIncomingAcked;
+                    _backendAudioStreamingService.CallAcceptedReceived -= OnBackendAudioCallAccepted;
+                    _backendAudioStreamingService.CallRejectedReceived -= OnBackendAudioCallRejected;
+                    _backendAudioStreamingService.CallEndedReceived -= OnBackendAudioCallEnded;
+
+                    try
+                    {
+                        _backendAudioStreamingService.DisconnectAsync().Wait(TimeSpan.FromSeconds(3));
+                    }
+                    catch (Exception disconnectEx)
+                    {
+                        LoggingService.Warn($"[MainWindow] Error disconnecting BackendAudioStreamingService: {disconnectEx.Message}");
+                    }
+
+                    _backendAudioStreamingService.Dispose();
+                    _backendAudioStreamingService = null;
+                    LoggingService.Info("[MainWindow] BackendAudioStreamingService stopped and disposed");
+                }
+            }
+            catch (Exception ex)
+            {
+                LoggingService.Error($"[MainWindow] Error stopping BackendAudioStreamingService: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Provides the persistent BackendAudioStreamingService to VoiceSessionPage.
+        /// </summary>
+        internal BackendAudioStreamingService GetBackendAudioStreamingService()
+        {
+            return _backendAudioStreamingService;
+        }
+
+        /// <summary>
+        /// Backend audio WS: call_incoming ACK → store backend session_id in VoiceSessionPage.
+        /// </summary>
+        private void OnBackendAudioCallIncomingAcked(string callId, string sessionId)
+        {
+            try
+            {
+                LoggingService.Info($"[MainWindow] Backend audio call_incoming ACK - call_id: {callId}, session_id: {sessionId}");
+
+                Dispatcher.BeginInvoke(new Action(() =>
+                {
+                    try
+                    {
+                        if (VoiceSessionPage != null)
+                        {
+                            VoiceSessionPage.SetBackendSessionId(sessionId);
+                        }
+                        else
+                        {
+                            LoggingService.Warn("[MainWindow] VoiceSessionPage is null - cannot process call_incoming ACK from audio WS");
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        LoggingService.Error($"[MainWindow] Error processing audio WS call_incoming ACK: {ex.Message}");
+                    }
+                }));
+            }
+            catch (Exception ex)
+            {
+                LoggingService.Error($"[MainWindow] Error in OnBackendAudioCallIncomingAcked: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Backend audio WS: call_accepted → start audio on driver side.
+        /// </summary>
+        private void OnBackendAudioCallAccepted(string callId, string sessionId, string conversationId, string agentId)
+        {
+            try
+            {
+                LoggingService.Info($"[MainWindow] Backend audio call_accepted - call_id: {callId}, session_id: {sessionId}, conversation_id: {conversationId}");
+
+                Dispatcher.BeginInvoke(new Action(async () =>
+                {
+                    try
+                    {
+                        if (VoiceSessionPage != null)
+                        {
+                            await VoiceSessionPage.OnBackendCallAccepted(callId, sessionId, conversationId, agentId);
+                        }
+                        else
+                        {
+                            LoggingService.Warn("[MainWindow] VoiceSessionPage is null - cannot process call_accepted from audio WS");
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        LoggingService.Error($"[MainWindow] Error processing audio WS call_accepted: {ex.Message}");
+                    }
+                }));
+            }
+            catch (Exception ex)
+            {
+                LoggingService.Error($"[MainWindow] Error in OnBackendAudioCallAccepted: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Backend audio WS: call_rejected → return driver to idle.
+        /// </summary>
+        private void OnBackendAudioCallRejected(string callId, string reason)
+        {
+            try
+            {
+                LoggingService.Info($"[MainWindow] Backend audio call_rejected - call_id: {callId}, reason: {reason}");
+
+                Dispatcher.BeginInvoke(new Action(() =>
+                {
+                    try
+                    {
+                        if (VoiceSessionPage != null)
+                        {
+                            VoiceSessionPage.OnBackendCallRejected(callId, reason);
+                        }
+                        else
+                        {
+                            LoggingService.Warn("[MainWindow] VoiceSessionPage is null - cannot process call_rejected from audio WS");
+                        }
+
+                        // Reset call button to Start Call state
+                        _isInitializing = false;
+                        _isCallActive = false;
+                        SetCallButtonState(false);
+                    }
+                    catch (Exception ex)
+                    {
+                        LoggingService.Error($"[MainWindow] Error processing audio WS call_rejected: {ex.Message}");
+                    }
+                }));
+            }
+            catch (Exception ex)
+            {
+                LoggingService.Error($"[MainWindow] Error in OnBackendAudioCallRejected: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Backend audio WS: call_ended → stop audio on driver side.
+        /// Note: We check both IsCallActive() and _isInitializing because during a rapid
+        /// accept-then-end sequence, the _isCallActive flag may not yet be true (it's set
+        /// by OnVoiceSessionCallStarted which fires after StartNewTranscription completes
+        /// on the dispatcher queue). The _isInitializing flag covers this race window.
+        /// </summary>
+        private void OnBackendAudioCallEnded(string callId, string reason, int durationSecs)
+        {
+            try
+            {
+                LoggingService.Info($"[MainWindow] Backend audio call_ended - call_id: {callId}, reason: {reason}, duration: {durationSecs}s");
+
+                Dispatcher.BeginInvoke(new Action(async () =>
+                {
+                    try
+                    {
+                        if (VoiceSessionPage != null && (IsCallActive() || _isInitializing))
+                        {
+                            await VoiceSessionPage.EndCallFromBackendAudio(callId, reason, durationSecs);
+                        }
+                        else
+                        {
+                            LoggingService.Warn("[MainWindow] VoiceSessionPage is null or no active/initializing call - ignoring call_ended from audio WS");
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        LoggingService.Error($"[MainWindow] Error processing audio WS call_ended: {ex.Message}");
+                    }
+                }));
+            }
+            catch (Exception ex)
+            {
+                LoggingService.Error($"[MainWindow] Error in OnBackendAudioCallEnded: {ex.Message}");
+            }
+        }
+
+        #endregion
+
         /// <summary>
         /// Updates the window title based on the current AppMode (set by DevMode checkbox on login page).
         /// </summary>
@@ -1594,6 +2126,13 @@ namespace DataRippleAIDesktop
 
                 // Start backend API health check for the title bar indicator
                 StartBackendApiHealthCheck();
+
+                // Start persistent BackendAudioStreamingService (connects to /ws/audio/{user_id}?token=jwt)
+                StartBackendAudioService();
+
+                // CallNotificationService disabled — all call lifecycle events now handled by
+                // the persistent BackendAudioStreamingService on the same /ws/audio endpoint.
+                // StartCallNotificationService();
 
                 // Update window title based on AppMode (set by DevMode checkbox on login page)
                 UpdateWindowTitleForMode();
@@ -1815,6 +2354,12 @@ namespace DataRippleAIDesktop
                 VoiceSessionPage.OnVoiceSessionCallStarted += OnVoiceSessionCallStarted;
                 VoiceSessionPage.OnVoiceSessionCallRejected += OnVoiceSessionCallRejected;
                 VoiceSessionPage.OnVoiceSessionCallStartFailed += OnVoiceSessionCallStartFailed;
+
+                // Pass the persistent BackendAudioStreamingService to VoiceSessionPage
+                if (_backendAudioStreamingService != null)
+                {
+                    VoiceSessionPage.SetPersistentBackendService(_backendAudioStreamingService);
+                }
             }
             else
             {
@@ -2285,6 +2830,12 @@ namespace DataRippleAIDesktop
                     _tokenRefreshService = null;
                 }
                 
+                // 0.5. Stop CallNotificationService
+                StopCallNotificationService();
+
+                // 0.6. Stop persistent BackendAudioStreamingService
+                StopBackendAudioService();
+
                 // 1. Dispose any active voice session
                 if (VoiceSessionPage != null)
                 {
@@ -2414,16 +2965,15 @@ namespace DataRippleAIDesktop
                     
                     if (VoiceSessionPage != null)
                     {
-                        // Trigger incoming call with ringing
-                        LoggingService.Info("[MainWindow] Triggering incoming call with ringing...");
-                        
+                        // Send call_incoming directly (no local IVR ringing step)
+                        LoggingService.Info("[MainWindow] Sending call_incoming to backend...");
+
                         await VoiceSessionPage.TriggerIncomingCall();
-                        
-                        // Keep initializing state TRUE during ringing to prevent double-clicking Start Call
-                        // The OnVoiceSessionCallStarted event will reset it if answered
-                        // The OnVoiceSessionCallRejected event will reset it if rejected
-                        // Button remains disabled during ringing phase
-                        LoggingService.Info("[MainWindow] Incoming call triggered - button remains disabled during ringing");
+
+                        // Keep initializing state TRUE while waiting for dashboard accept/reject
+                        // OnBackendCallAccepted will set _isCallActive and start audio
+                        // OnBackendCallRejected will reset to idle
+                        LoggingService.Info("[MainWindow] call_incoming sent - waiting for dashboard response");
                     }
                     else
                     {
@@ -2477,6 +3027,10 @@ namespace DataRippleAIDesktop
                 _isInitializing = false; // Reset initializing state as well
                 _isCallActive = false;
                 SetCallButtonState(false); // Re-enable "Start Call" button
+
+                // Close active call popup if showing (call has ended)
+                CloseActiveCallPopup();
+
                 LoggingService.Info("[MainWindow] VoiceSession disposal completed - Start Call button re-enabled");
                 LoggingService.Info($"[MainWindow] State after disposal: disposing={_isDisposing}, initializing={_isInitializing}, callActive={_isCallActive}, processing={_isProcessingCallControl}");
             });
@@ -2491,6 +3045,30 @@ namespace DataRippleAIDesktop
                 _isCallActive = true;
                 SetCallButtonState(true); // Set to "End Call"
                 LoggingService.Info("[MainWindow] Call started after answering - button updated to 'End Call'");
+
+                // If the popup is showing in ringing mode, transition it to active call mode
+                if (_activeCallPopup != null && _activeCallPopup.IsRingingMode)
+                {
+                    DateTime callStart = VoiceSessionPage?.CallStartTime ?? DateTime.Now;
+                    if (callStart == default(DateTime))
+                    {
+                        callStart = DateTime.Now;
+                    }
+
+                    // Update caller info in case it changed during accept
+                    if (VoiceSessionPage != null)
+                    {
+                        _activeCallPopup.IsMuted = VoiceSessionPage.IsMicrophoneMuted;
+                    }
+
+                    _activeCallPopup.TransitionToActiveCall(callStart);
+                    LoggingService.Info("[MainWindow] Popup transitioned from ringing to active call mode");
+                }
+                // If no popup exists and the main window is hidden, show a new active call popup
+                else if (this.Visibility != Visibility.Visible && _activeCallPopup == null)
+                {
+                    ShowActiveCallPopup();
+                }
             });
         }
 
@@ -2502,6 +3080,10 @@ namespace DataRippleAIDesktop
                 _isInitializing = false;
                 _isCallActive = false;
                 SetCallButtonState(false); // Re-enable "Start Call" button
+
+                // Close active call popup if showing (call was rejected)
+                CloseActiveCallPopup();
+
                 LoggingService.Info("[MainWindow] Call rejected - button updated to 'Start Call'");
             });
         }
@@ -2514,8 +3096,275 @@ namespace DataRippleAIDesktop
                 _isInitializing = false;
                 _isCallActive = false;
                 SetCallButtonState(false); // Re-enable "Start Call" button
+
+                // Close active call popup if showing (call failed to start)
+                CloseActiveCallPopup();
+
                 LoggingService.Info($"[MainWindow] Call start failed: {errorMessage} - button updated to 'Start Call'");
             });
+        }
+
+        // =====================================================================
+        // Active Call Popup Management
+        // =====================================================================
+
+        /// <summary>
+        /// Shows the active call popup window at the bottom-right of the screen.
+        /// Displays call info from the current VoiceSessionPage and starts the duration timer.
+        /// </summary>
+        private void ShowActiveCallPopup()
+        {
+            try
+            {
+                // Close any existing popup first
+                CloseActiveCallPopup();
+
+                if (VoiceSessionPage == null)
+                {
+                    LoggingService.Warn("[MainWindow] Cannot show active call popup - VoiceSessionPage is null");
+                    return;
+                }
+
+                _activeCallPopup = new ActiveCallPopupWindow
+                {
+                    CallerName = VoiceSessionPage.CurrentCallerName,
+                    CallerPhone = VoiceSessionPage.CurrentCallerPhone,
+                    IsMuted = VoiceSessionPage.IsMicrophoneMuted
+                };
+
+                // Subscribe to popup events (all events for consistency)
+                _activeCallPopup.EndCallRequested += OnActiveCallPopup_EndCallRequested;
+                _activeCallPopup.ExpandRequested += OnActiveCallPopup_ExpandRequested;
+                _activeCallPopup.MuteToggleRequested += OnActiveCallPopup_MuteToggleRequested;
+                _activeCallPopup.AcceptCallRequested += OnActiveCallPopup_AcceptCallRequested;
+                _activeCallPopup.RejectCallRequested += OnActiveCallPopup_RejectCallRequested;
+
+                // Show with animation, passing the call start time for accurate duration display
+                DateTime callStart = VoiceSessionPage.CallStartTime;
+                if (callStart == default(DateTime))
+                {
+                    callStart = DateTime.Now; // Fallback if start time not set
+                }
+                _activeCallPopup.ShowWithAnimation(callStart);
+
+                LoggingService.Info("[MainWindow] Active call popup shown");
+            }
+            catch (Exception ex)
+            {
+                LoggingService.Error($"[MainWindow] Error showing active call popup: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Shows the popup in ringing mode at the bottom-right of the screen.
+        /// Displays caller info with Accept/Reject buttons instead of Mute/End Call.
+        /// </summary>
+        private void ShowRingingPopup()
+        {
+            try
+            {
+                // Close any existing popup first
+                CloseActiveCallPopup();
+
+                if (VoiceSessionPage == null)
+                {
+                    LoggingService.Warn("[MainWindow] Cannot show ringing popup - VoiceSessionPage is null");
+                    return;
+                }
+
+                _activeCallPopup = new ActiveCallPopupWindow
+                {
+                    CallerName = VoiceSessionPage.CurrentCallerName,
+                    CallerPhone = VoiceSessionPage.CurrentCallerPhone
+                };
+
+                // Subscribe to popup events (all events, including ringing-specific ones)
+                _activeCallPopup.EndCallRequested += OnActiveCallPopup_EndCallRequested;
+                _activeCallPopup.ExpandRequested += OnActiveCallPopup_ExpandRequested;
+                _activeCallPopup.MuteToggleRequested += OnActiveCallPopup_MuteToggleRequested;
+                _activeCallPopup.AcceptCallRequested += OnActiveCallPopup_AcceptCallRequested;
+                _activeCallPopup.RejectCallRequested += OnActiveCallPopup_RejectCallRequested;
+
+                // Show in ringing mode (no duration timer, Accept/Reject buttons)
+                _activeCallPopup.ShowRingingWithAnimation();
+
+                LoggingService.Info("[MainWindow] Ringing popup shown");
+            }
+            catch (Exception ex)
+            {
+                LoggingService.Error($"[MainWindow] Error showing ringing popup: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Closes the active call popup window if it is currently showing.
+        /// </summary>
+        private void CloseActiveCallPopup()
+        {
+            try
+            {
+                if (_activeCallPopup != null)
+                {
+                    // Unsubscribe all events to prevent leaks (both active call and ringing events)
+                    _activeCallPopup.EndCallRequested -= OnActiveCallPopup_EndCallRequested;
+                    _activeCallPopup.ExpandRequested -= OnActiveCallPopup_ExpandRequested;
+                    _activeCallPopup.MuteToggleRequested -= OnActiveCallPopup_MuteToggleRequested;
+                    _activeCallPopup.AcceptCallRequested -= OnActiveCallPopup_AcceptCallRequested;
+                    _activeCallPopup.RejectCallRequested -= OnActiveCallPopup_RejectCallRequested;
+
+                    _activeCallPopup.CloseWithAnimation();
+                    _activeCallPopup = null;
+
+                    LoggingService.Info("[MainWindow] Active call popup closed");
+                }
+            }
+            catch (Exception ex)
+            {
+                LoggingService.Error($"[MainWindow] Error closing active call popup: {ex.Message}");
+                _activeCallPopup = null;
+            }
+        }
+
+        /// <summary>
+        /// Handles the End Call button on the active call popup.
+        /// Ends the current call by delegating to VoiceSessionPage.StopTranscription().
+        /// </summary>
+        private async void OnActiveCallPopup_EndCallRequested(object sender, EventArgs e)
+        {
+            try
+            {
+                LoggingService.Info("[MainWindow] End call requested from active call popup");
+
+                _activeCallPopup = null; // Popup is closing itself
+
+                if (VoiceSessionPage != null && IsCallActive())
+                {
+                    _isDisposing = true;
+
+                    Dispatcher.Invoke(() =>
+                    {
+                        SetCallButtonState(false); // Show "Stopping..."
+                    });
+
+                    await VoiceSessionPage.StopTranscription();
+                    LoggingService.Info("[MainWindow] StopTranscription completed from popup End Call");
+                }
+            }
+            catch (Exception ex)
+            {
+                LoggingService.Error($"[MainWindow] Error ending call from popup: {ex.Message}");
+                _isDisposing = false;
+                Dispatcher.Invoke(() => OnVoiceSessionDisposalCompleted());
+            }
+        }
+
+        /// <summary>
+        /// Handles the Expand button on the active call popup.
+        /// Restores the main window from the system tray.
+        /// </summary>
+        private void OnActiveCallPopup_ExpandRequested(object sender, EventArgs e)
+        {
+            try
+            {
+                LoggingService.Info("[MainWindow] Expand requested from active call popup");
+
+                _activeCallPopup = null; // Popup is closing itself
+
+                // Restore the main window
+                Dispatcher.Invoke(() =>
+                {
+                    ShowWindow();
+                });
+            }
+            catch (Exception ex)
+            {
+                LoggingService.Error($"[MainWindow] Error expanding from popup: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Handles the Mute toggle button on the active call popup.
+        /// Relays the mute state to VoiceSessionPage/BackendAudioStreamingService.
+        /// </summary>
+        private void OnActiveCallPopup_MuteToggleRequested(object sender, bool isMuted)
+        {
+            try
+            {
+                LoggingService.Info($"[MainWindow] Mute toggle requested from popup - IsMuted: {isMuted}");
+
+                if (VoiceSessionPage != null)
+                {
+                    VoiceSessionPage.IsMicrophoneMuted = isMuted;
+                }
+            }
+            catch (Exception ex)
+            {
+                LoggingService.Error($"[MainWindow] Error toggling mute from popup: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Handles the Accept Call button on the ringing popup.
+        /// Accepts the incoming call by delegating to VoiceSessionPage.AcceptCallFromPopup().
+        /// The popup will transition to active call mode via OnVoiceSessionCallStarted.
+        /// </summary>
+        private async void OnActiveCallPopup_AcceptCallRequested(object sender, EventArgs e)
+        {
+            try
+            {
+                LoggingService.Info("[MainWindow] Accept call requested from ringing popup");
+
+                if (VoiceSessionPage != null && VoiceSessionPage.IsRinging)
+                {
+                    // Do NOT set _activeCallPopup = null here; the popup stays open
+                    // and will be transitioned to active call mode by OnVoiceSessionCallStarted
+                    await VoiceSessionPage.AcceptCallFromPopup();
+                    LoggingService.Info("[MainWindow] AcceptCallFromPopup completed - waiting for OnVoiceSessionCallStarted to transition popup");
+                }
+                else
+                {
+                    LoggingService.Warn("[MainWindow] Accept call from popup but VoiceSessionPage is null or not ringing");
+                    CloseActiveCallPopup();
+                }
+            }
+            catch (Exception ex)
+            {
+                LoggingService.Error($"[MainWindow] Error accepting call from popup: {ex.Message}");
+                // Reset state on error
+                _isInitializing = false;
+                CloseActiveCallPopup();
+            }
+        }
+
+        /// <summary>
+        /// Handles the Reject Call button on the ringing popup.
+        /// Rejects the incoming call by delegating to VoiceSessionPage.RejectCallFromPopup().
+        /// The popup closes itself after rejecting.
+        /// </summary>
+        private async void OnActiveCallPopup_RejectCallRequested(object sender, EventArgs e)
+        {
+            try
+            {
+                LoggingService.Info("[MainWindow] Reject call requested from ringing popup");
+
+                _activeCallPopup = null; // Popup is closing itself
+
+                if (VoiceSessionPage != null)
+                {
+                    await VoiceSessionPage.RejectCallFromPopup();
+                    LoggingService.Info("[MainWindow] RejectCallFromPopup completed from popup");
+                }
+            }
+            catch (Exception ex)
+            {
+                LoggingService.Error($"[MainWindow] Error rejecting call from popup: {ex.Message}");
+                _isInitializing = false;
+                Dispatcher.Invoke(() =>
+                {
+                    _isCallActive = false;
+                    SetCallButtonState(false);
+                });
+            }
         }
 
         private void StartTokenRefreshService()

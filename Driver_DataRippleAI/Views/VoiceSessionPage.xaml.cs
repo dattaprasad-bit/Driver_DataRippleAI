@@ -55,6 +55,14 @@ namespace DataRippleAIDesktop.Views
         // BackendAudioStreamingService initialization lock
         private readonly object _backendAudioInitLock = new object();
 
+        // Flag to prevent echoing call_ended back to backend when it was initiated from backend
+        private bool _callEndedFromBackend = false;
+
+        // Backend-assigned session/conversation/agent IDs from CallNotificationService events
+        private string _backendNotificationSessionId = null;
+        private string _backendNotificationConversationId = null;
+        private string _backendNotificationAgentId = null;
+
         // Cancellation token for frontend integration background tasks
         private CancellationTokenSource _frontendCancellationTokenSource;
         
@@ -133,6 +141,13 @@ namespace DataRippleAIDesktop.Views
         private DispatcherTimer _callDurationTimer;
         private bool _isCallActive = false;
 
+        // Guard flag: mic/speaker audio capture is ONLY allowed when a call has been accepted.
+        // Set to TRUE in AcceptCallButton_Click and OnBackendCallAccepted;
+        // set to FALSE in StopTranscription, RejectCallButton_Click, OnBackendCallRejected,
+        // EndCallFromBackendAudio, EndCallFromBackend, ShowIdlePanel, InitializeUIOnly,
+        // DisposeVoiceSessionPage, and at construction.
+        private bool _isCallAccepted = false;
+
         // Tracks whether InitializeUIOnly has been run at least once.
         // Prevents the Loaded event from clearing call logs when the
         // page is re-added to the visual tree after navigation.
@@ -190,9 +205,12 @@ namespace DataRippleAIDesktop.Views
             {
                 _ivrService = new IVRService();
                 
-                // Subscribe to IVR events
-                _ivrService.CallAnswered += OnIVRCallAnswered;
-                _ivrService.CallRejected += OnIVRCallRejected;
+                // IVR accept/reject bypassed -- call lifecycle now handled by BackendAudioStreamingService
+                // events routed through MainWindow (call_incoming -> call_accepted/call_rejected).
+                // These subscriptions are intentionally disabled to prevent double-start of transcription
+                // or other side effects if IVR events fire unexpectedly.
+                // _ivrService.CallAnswered += OnIVRCallAnswered;
+                // _ivrService.CallRejected += OnIVRCallRejected;
                 _ivrService.IncomingCallRinging += OnIVRIncomingCallRinging; // UI only; forwarding handled elsewhere
                 
                 LoggingService.Info("[VoiceSessionPage] IVR service initialized successfully (independent of frontend)");
@@ -233,7 +251,9 @@ namespace DataRippleAIDesktop.Views
             {
                 if (cancellationToken.IsCancellationRequested) return;
 
-                _currentAgentId = "default_agent";
+                _currentAgentId = !string.IsNullOrEmpty(_backendNotificationAgentId)
+                    ? _backendNotificationAgentId
+                    : "default_agent";
 
                 // Poll for backend connection and assign conversation ID
                 _ = Task.Run(async () => await PollForConversationIdAndStartCall(cancellationToken), cancellationToken);
@@ -257,12 +277,33 @@ namespace DataRippleAIDesktop.Views
                 {
                     if (cancellationToken.IsCancellationRequested) return;
 
+                    // Abort polling if call is no longer accepted (e.g., call ended during polling)
+                    if (!_isCallAccepted)
+                    {
+                        LoggingService.Info("[VoiceSessionPage] Aborting poll — _isCallAccepted became false during polling");
+                        return;
+                    }
+
                     bool backendConnected = _backendAudioStreamingService?.IsConnected ?? false;
                     if (backendConnected)
                     {
                         if (string.IsNullOrEmpty(_currentConversationId))
                         {
-                            _currentConversationId = $"session_{_callStartTime:yyyyMMdd_HHmmss}_{Guid.NewGuid().ToString("N")[..8]}";
+                            // Prefer backend-assigned conversation/session ID from CallNotificationService
+                            if (!string.IsNullOrEmpty(_backendNotificationConversationId))
+                            {
+                                _currentConversationId = _backendNotificationConversationId;
+                                LoggingService.Info($"[VoiceSessionPage] Using backend-assigned conversation_id: {_currentConversationId}");
+                            }
+                            else if (!string.IsNullOrEmpty(_backendNotificationSessionId))
+                            {
+                                _currentConversationId = _backendNotificationSessionId;
+                                LoggingService.Info($"[VoiceSessionPage] Using backend-assigned session_id as conversation_id: {_currentConversationId}");
+                            }
+                            else
+                            {
+                                _currentConversationId = $"session_{_callStartTime:yyyyMMdd_HHmmss}_{Guid.NewGuid().ToString("N")[..8]}";
+                            }
                         }
 
                         // Update call logger
@@ -298,6 +339,13 @@ namespace DataRippleAIDesktop.Views
                         }
 
                         // Start audio recording, show waveforms, and show latency indicator
+                        // GUARD: Only start mic/speaker capture if the call has been accepted
+                        if (!_isCallAccepted)
+                        {
+                            LoggingService.Warn("[VoiceSessionPage] Skipping audio capture start — _isCallAccepted is false (call not accepted)");
+                            return;
+                        }
+
                         _callStartedEventSent = true;
                         _lastLatencyUiUpdate = DateTime.MinValue; // Reset throttle so first latency sample updates immediately
                         Dispatcher.Invoke(() =>
@@ -305,6 +353,7 @@ namespace DataRippleAIDesktop.Views
                             if (_audioRecorderVisualizer != null && !_audioRecorderVisualizer.IsRecording())
                             {
                                 _audioRecorderVisualizer.StartRecording();
+                                LoggingService.Info("[VoiceSessionPage] Mic/speaker audio capture started (call is accepted)");
                             }
                             // Waveform controls are always visible in the Customer/Agent cards;
                             // audio data will flow into them automatically via AudioRecorderVisualizer
@@ -321,6 +370,14 @@ namespace DataRippleAIDesktop.Views
 
                 // Backend never connected within 8s — start anyway with pending ID
                 LoggingService.Warn("[VoiceSessionPage] Backend audio service did not connect within 8s - starting call session anyway");
+
+                // GUARD: Only start mic/speaker capture if the call has been accepted
+                if (!_isCallAccepted)
+                {
+                    LoggingService.Warn("[VoiceSessionPage] Skipping audio capture start (timeout path) — _isCallAccepted is false (call not accepted)");
+                    return;
+                }
+
                 if (string.IsNullOrEmpty(_currentConversationId))
                 {
                     _currentConversationId = $"session_{_callStartTime:yyyyMMdd_HHmmss}_pending";
@@ -333,6 +390,7 @@ namespace DataRippleAIDesktop.Views
                     if (_audioRecorderVisualizer != null && !_audioRecorderVisualizer.IsRecording())
                     {
                         _audioRecorderVisualizer.StartRecording();
+                        LoggingService.Info("[VoiceSessionPage] Mic/speaker audio capture started (call is accepted, timeout path)");
                     }
                     // Waveform controls are always visible in the Customer/Agent cards;
                     // audio data will flow into them automatically via AudioRecorderVisualizer
@@ -369,13 +427,16 @@ namespace DataRippleAIDesktop.Views
 
                 LoggingService.Info($"[VoiceSessionPage] Ending call session - Conversation ID: {_currentConversationId}");
 
-                // Clear conversation ID, agent ID, and delta tracking state after call ends
+                // Clear conversation ID, agent ID, backend notification IDs, and delta tracking state after call ends
                 _currentConversationId = null;
                 _currentAgentId = null;
+                _backendNotificationSessionId = null;
+                _backendNotificationConversationId = null;
+                _backendNotificationAgentId = null;
                 _backendDeltaAgentMessage = null;
                 _backendDeltaAgentTurnId = null;
                 _backendDeltaAgentText = "";
-                LoggingService.Info("[VoiceSessionPage] Conversation ID, Agent ID, and delta state cleared after call end");
+                LoggingService.Info("[VoiceSessionPage] Conversation ID, Agent ID, backend notification IDs, and delta state cleared after call end");
             }
             catch (Exception ex)
             {
@@ -530,6 +591,9 @@ namespace DataRippleAIDesktop.Views
             try
             {
                 LoggingService.Info("[VoiceSessionPage] Initializing UI components...");
+
+                // Ensure audio capture gate is off at initialization — mic/speaker must be OFF until a call is accepted
+                _isCallAccepted = false;
 
                 // Clear conversation history for new session
                 ClearConversationHistory();
@@ -1033,25 +1097,150 @@ namespace DataRippleAIDesktop.Views
         }
 
         /// <summary>
-        /// Trigger incoming call (shows ringing panel)
+        /// Sets the persistent BackendAudioStreamingService (owned by MainWindow, alive from login to logout).
+        /// Subscribes to data events (transcripts, agent responses, etc.) for the page lifetime.
+        /// </summary>
+        public void SetPersistentBackendService(BackendAudioStreamingService service)
+        {
+            if (service == null) return;
+
+            // Unsubscribe from old service if any
+            if (_backendAudioStreamingService != null)
+            {
+                _backendAudioStreamingService.TranscriptReceived -= OnBackendTranscriptReceived;
+                _backendAudioStreamingService.AgentResponseReceived -= OnBackendAgentResponseReceived;
+                _backendAudioStreamingService.ErrorOccurred -= OnBackendErrorOccurred;
+                _backendAudioStreamingService.ConnectionStatusChanged -= OnBackendConnectionStatusChanged;
+                _backendAudioStreamingService.SessionStatusReceived -= OnBackendSessionStatusReceived;
+                _backendAudioStreamingService.AudioChunkLatencyMeasured -= OnAudioChunkLatencyMeasured;
+            }
+
+            _backendAudioStreamingService = service;
+
+            // Subscribe to data events only (call lifecycle events routed through MainWindow)
+            _backendAudioStreamingService.TranscriptReceived += OnBackendTranscriptReceived;
+            _backendAudioStreamingService.AgentResponseReceived += OnBackendAgentResponseReceived;
+            _backendAudioStreamingService.ErrorOccurred += OnBackendErrorOccurred;
+            _backendAudioStreamingService.ConnectionStatusChanged += OnBackendConnectionStatusChanged;
+            _backendAudioStreamingService.SessionStatusReceived += OnBackendSessionStatusReceived;
+            _backendAudioStreamingService.AudioChunkLatencyMeasured += OnAudioChunkLatencyMeasured;
+
+            // Set in audio recorder for routing audio chunks
+            if (_audioRecorderVisualizer != null)
+            {
+                Dispatcher.Invoke(() =>
+                {
+                    _audioRecorderVisualizer.SetBackendAudioStreamingService(_backendAudioStreamingService);
+                });
+            }
+
+            LoggingService.Info("[VoiceSessionPage] Persistent BackendAudioStreamingService set and events subscribed");
+        }
+
+        /// <summary>
+        /// Trigger incoming call — sends call_incoming to backend and waits for dashboard accept/reject.
+        /// No local IVR ringing step; the "Start Call" button directly initiates the call lifecycle.
         /// </summary>
         public async Task TriggerIncomingCall()
         {
             try
             {
-                LoggingService.Info("[VoiceSessionPage] Triggering incoming call with ringing...");
-                await SimulateIncomingCallAsync();
+                LoggingService.Info("[VoiceSessionPage] Sending call_incoming to backend...");
+
+                // Ensure we have the persistent backend service
+                if (_backendAudioStreamingService == null)
+                {
+                    var mainWindow = Application.Current?.MainWindow as MainWindow;
+                    var service = mainWindow?.GetBackendAudioStreamingService();
+                    if (service != null)
+                    {
+                        SetPersistentBackendService(service);
+                    }
+                }
+
+                if (_backendAudioStreamingService == null || !_backendAudioStreamingService.IsConnected)
+                {
+                    LoggingService.Error("[VoiceSessionPage] BackendAudioStreamingService not available - cannot send call_incoming");
+                    MessageBox.Show("Backend audio service not connected. Please check your connection.", "Error", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    OnVoiceSessionCallStartFailed?.Invoke(this, "Backend audio service not connected");
+                    return;
+                }
+
+                // Generate call data (use IVR service for customer data generation)
+                string callId = $"call_{Guid.NewGuid().ToString("N").Substring(0, 8)}";
+                if (_ivrService != null)
+                {
+                    await _ivrService.SimulateIncomingCallAsync();
+                    callId = _ivrService.GetCurrentCallId() ?? callId;
+                }
+
+                string csrId = Globals.UserId;
+                if (string.IsNullOrEmpty(csrId))
+                {
+                    var userDetails = SecureTokenStorage.RetrieveUserDetails();
+                    csrId = userDetails?.Email?.ToString() ?? "unknown_user";
+                }
+
+                // Build customer and employee objects matching the protocol schema
+                var customer = new
+                {
+                    name = _ivrService?.CurrentCustomerName ?? "Unknown",
+                    customerId = _ivrService?.CurrentCustomerId ?? "unknown",
+                    phone_e164 = _ivrService?.CurrentCustomerPhone ?? "+000000000",
+                    email = _ivrService?.CurrentCustomerEmail ?? ""
+                };
+
+                var employee = new
+                {
+                    id = csrId,
+                    email = csrId,
+                    company_id = "default",
+                    company_name = "DataRipple"
+                };
+
+                // Send call_incoming via the persistent BackendAudioStreamingService
+                bool sent = await _backendAudioStreamingService.SendCallIncomingAsync(callId, csrId, customer, employee);
+                if (sent)
+                {
+                    LoggingService.Info($"[VoiceSessionPage] call_incoming sent - call_id: {callId}, waiting for dashboard response");
+
+                    // Show the incoming call panel with Accept/Reject buttons so the driver
+                    // can see the ringing state and accept/reject locally while waiting for
+                    // the dashboard response.  If the dashboard accepts or rejects first,
+                    // OnBackendCallAccepted / OnBackendCallRejected will auto-hide the panel.
+                    Dispatcher.Invoke(() =>
+                    {
+                        IncomingCallCustomerName.Text = _ivrService?.CurrentCustomerName ?? "Unknown";
+                        IncomingCallPhoneNumber.Text = _ivrService?.CurrentCustomerPhone ?? "Unknown";
+                        IncomingCallPanel.Visibility = Visibility.Visible;
+                        LoggingService.Info("[VoiceSessionPage] Incoming call panel shown - waiting for accept/reject");
+                    });
+                }
+                else
+                {
+                    LoggingService.Error("[VoiceSessionPage] Failed to send call_incoming");
+                    OnVoiceSessionCallStartFailed?.Invoke(this, "Failed to send call_incoming to backend");
+                }
             }
             catch (Exception ex)
             {
-                LoggingService.Error($"[VoiceSessionPage] Error triggering incoming call: {ex.Message}");
+                LoggingService.Error($"[VoiceSessionPage] Error in TriggerIncomingCall: {ex.Message}");
+                OnVoiceSessionCallStartFailed?.Invoke(this, ex.Message);
             }
         }
 
         public async Task StartNewTranscription()
         {
             var threadId = System.Threading.Thread.CurrentThread.ManagedThreadId;
-            
+
+            // GUARD: Mic/speaker audio capture requires an accepted call.
+            // _isCallAccepted is set to true only in AcceptCallButton_Click and OnBackendCallAccepted.
+            if (!_isCallAccepted)
+            {
+                LoggingService.Warn("[VoiceSessionPage] StartNewTranscription blocked — _isCallAccepted is false (no accepted call)");
+                return;
+            }
+
             // Prevent multiple simultaneous start operations
             lock (_startLock)
             {
@@ -1061,7 +1250,7 @@ namespace DataRippleAIDesktop.Views
                 }
                 _isStarting = true;
             }
-            
+
             // Prevent starting while disposing
             lock (_disposalLock)
             {
@@ -1131,13 +1320,12 @@ namespace DataRippleAIDesktop.Views
 
                 // Cleared stale transcriptions (logging removed for performance)
                 
-                // Add call start separator to conversation and track start time
+                // Track start time and switch UI to active call state
                 _callStartTime = DateTime.Now;
                 Dispatcher.Invoke(() =>
                 {
                     HideIdlePanel();
                     StartCallDurationTimer();
-                    CreateCallSeparator("Start Call", _callStartTime, true);
                 });
                 
                 // Start call logging - check if enabled in configuration
@@ -1173,30 +1361,18 @@ namespace DataRippleAIDesktop.Views
                     _callLogger.StartCallLogging(conversationId, callId);
                 }
 
-                // Always create a fresh backend audio streaming session for each call
-                if (_backendAudioStreamingService != null)
+                // Ensure persistent BackendAudioStreamingService is available (owned by MainWindow)
+                if (_backendAudioStreamingService == null)
                 {
-                    try
+                    var mainWindow = Application.Current?.MainWindow as MainWindow;
+                    var service = mainWindow?.GetBackendAudioStreamingService();
+                    if (service != null)
                     {
-                        // Unsubscribe from events
-                        _backendAudioStreamingService.TranscriptReceived -= OnBackendTranscriptReceived;
-                        _backendAudioStreamingService.AgentResponseReceived -= OnBackendAgentResponseReceived;
-                        _backendAudioStreamingService.ErrorOccurred -= OnBackendErrorOccurred;
-                        _backendAudioStreamingService.ConnectionStatusChanged -= OnBackendConnectionStatusChanged;
-                        _backendAudioStreamingService.SessionStatusReceived -= OnBackendSessionStatusReceived;
-                    _backendAudioStreamingService.AudioChunkLatencyMeasured -= OnAudioChunkLatencyMeasured;
-
-                        await _backendAudioStreamingService.DisconnectAsync();
-                        await Task.Delay(50);
-
-                        _backendAudioStreamingService.Dispose();
-                        _backendAudioStreamingService = null;
-                        LoggingService.Info("[VoiceSessionPage] Previous BackendAudioStreamingService disposed");
+                        SetPersistentBackendService(service);
                     }
-                    catch (Exception cleanupEx)
+                    else
                     {
-                        LoggingService.Error($"[VoiceSessionPage] Error disposing previous BackendAudioStreamingService: {cleanupEx.Message}");
-                        _backendAudioStreamingService = null;
+                        throw new Exception("BackendAudioStreamingService not available from MainWindow");
                     }
                 }
 
@@ -1206,13 +1382,10 @@ namespace DataRippleAIDesktop.Views
                     await InitializeUIOnly();
                 }
 
-                // Load and apply audio device settings from appsettings.json
-                LoadAndApplyAudioDeviceSettings();
-
-                // Don't show waveforms or start recording yet - wait until backend connects
-                // Waveforms and audio recording will be started in PollForConversationIdAndStartCall() after backend connects
-
-                // Ensure audio recorder is stopped before starting (in case of restart)
+                // IMPORTANT: Stop any existing audio capture BEFORE applying device settings.
+                // The Set*Device methods in AudioRecorderVisualizer will call StopRecording() + StartRecording()
+                // if _IsRecording is true, which could briefly start mic/speaker capture prematurely.
+                // By stopping first, we ensure device settings are applied cleanly without side effects.
                 if (_audioRecorderVisualizer.IsRecording())
                 {
                     _audioRecorderVisualizer.StopRecording();
@@ -1226,6 +1399,13 @@ namespace DataRippleAIDesktop.Views
                     // from the previous call's StopRecording -> RecordingStopped -> Dispose chain
                     await Task.Delay(100);
                 }
+
+                // Load and apply audio device settings from appsettings.json
+                // Safe to call now because recording is guaranteed to be stopped
+                LoadAndApplyAudioDeviceSettings();
+
+                // Don't show waveforms or start recording yet - wait until backend connects
+                // Waveforms and audio recording will be started in PollForConversationIdAndStartCall() after backend connects
 
                 // Clear waveform data during initialization (controls remain visible in cards)
                 Dispatcher.Invoke(() =>
@@ -1243,106 +1423,31 @@ namespace DataRippleAIDesktop.Views
                 // Define cancellationToken in shared scope
                 var cancellationToken = _frontendCancellationTokenSource?.Token ?? CancellationToken.None;
 
-                // Initialize BackendAudioStreamingService
-                LoggingService.Info($"[VoiceSessionPage] Initializing BackendAudioStreamingService... (BackendAccessToken available: {!string.IsNullOrEmpty(Globals.BackendAccessToken)})");
-
-                var backendAudioTask = Task.Run(async () =>
+                // Ensure audio recorder has the persistent service reference for routing audio
+                Dispatcher.Invoke(() =>
                 {
-                    try
-                    {
-                        // Create service from configuration
-                        _backendAudioStreamingService = BackendAudioStreamingService.CreateFromConfiguration();
+                    _audioRecorderVisualizer?.SetBackendAudioStreamingService(_backendAudioStreamingService);
+                });
 
-                        // Wire up events for receiving transcripts, agent responses, errors, etc.
-                        _backendAudioStreamingService.TranscriptReceived += OnBackendTranscriptReceived;
-                        _backendAudioStreamingService.AgentResponseReceived += OnBackendAgentResponseReceived;
-                        _backendAudioStreamingService.ErrorOccurred += OnBackendErrorOccurred;
-                        _backendAudioStreamingService.ConnectionStatusChanged += OnBackendConnectionStatusChanged;
-                        _backendAudioStreamingService.SessionStatusReceived += OnBackendSessionStatusReceived;
-                        _backendAudioStreamingService.AudioChunkLatencyMeasured += OnAudioChunkLatencyMeasured;
+                LoggingService.Info("[VoiceSessionPage] Audio capture starting (call_accepted already received, service is persistent)");
 
-                        // Connect to backend with JWT token
-                        using (var cts = new CancellationTokenSource(TimeSpan.FromSeconds(20)))
-                        {
-                            bool connected = await _backendAudioStreamingService.ConnectAsync(Globals.BackendAccessToken).WaitAsync(cts.Token);
-                            if (!connected)
-                            {
-                                LoggingService.Error("[VoiceSessionPage] BackendAudioStreamingService connection failed");
-                                throw new Exception("Backend audio streaming connection failed");
-                            }
-                        }
-
-                        // Send call_started event with call context
-                        string callId = _ivrService?.GetCurrentCallId() ?? $"call_{Guid.NewGuid().ToString("N").Substring(0, 8)}";
-                        string csrId = Globals.UserId;
-                        if (string.IsNullOrEmpty(csrId))
-                        {
-                            var userDetails = SecureTokenStorage.RetrieveUserDetails();
-                            csrId = userDetails?.Email?.ToString() ?? "unknown_user";
-                        }
-                        var customer = new
-                        {
-                            name = _ivrService?.CurrentCustomerName ?? "Unknown",
-                            phone = _ivrService?.CurrentCustomerPhone ?? "+000000000",
-                            account_id = _ivrService?.CurrentCustomerId ?? "unknown"
-                        };
-                        var employee = new
-                        {
-                            name = csrId,
-                            id = csrId,
-                            department = "support"
-                        };
-                        await _backendAudioStreamingService.SendCallStartedAsync(callId, csrId, customer, employee);
-
-                        // Set the backend service in the audio recorder for routing
-                        Dispatcher.Invoke(() =>
-                        {
-                            _audioRecorderVisualizer?.SetBackendAudioStreamingService(_backendAudioStreamingService);
-                        });
-
-                        LoggingService.Info("[VoiceSessionPage] BackendAudioStreamingService initialized and connected successfully");
-                    }
-                    catch (OperationCanceledException)
-                    {
-                        LoggingService.Warn("[VoiceSessionPage] BackendAudioStreamingService initialization timed out after 20 seconds");
-                        throw new TimeoutException("Backend audio streaming initialization timed out");
-                    }
-                    catch (Exception ex)
-                    {
-                        LoggingService.Error($"[VoiceSessionPage] BackendAudioStreamingService initialization failed: {ex.Message}");
-                        throw;
-                    }
-                }, cancellationToken);
-
-                // Wait for backend audio service to connect (required for call to proceed)
-                try
-                {
-                    await backendAudioTask;
-                }
-                catch (TimeoutException)
-                {
-                    throw;
-                }
-                catch (Exception ex)
-                {
-                    LoggingService.Error($"[VoiceSessionPage] Backend audio initialization error: {ex.Message}");
-                    throw;
-                }
-
-                // FRONTEND INTEGRATION: Start call session in background (non-blocking to avoid UI delay)
+                // Start call session in background (non-blocking to avoid UI delay)
                 _ = Task.Run(async () => await StartCallSessionAsync(cancellationToken), cancellationToken);
             }
             catch (Exception ex)
             {
                 LoggingService.Error($"[VoiceSessionPage] ❌ ERROR in StartNewTranscription: {ex.Message}");
                 LoggingService.Error($"[VoiceSessionPage] Stack trace: {ex.StackTrace}");
-                
+
+                // Gate off audio capture since call failed to start
+                _isCallAccepted = false;
+
                 // Clean up the conversation history since call failed to start
                 Dispatcher.Invoke(() =>
                 {
                     StackPanelTranscription.Children.Clear();
                 });
-                
+
                 // Stop audio recording if it was started
                 try
                 {
@@ -1424,8 +1529,12 @@ namespace DataRippleAIDesktop.Views
             
             try
             {
+                // Immediately clear the call-accepted gate so no new audio capture can start
+                _isCallAccepted = false;
+                LoggingService.Info("[VoiceSessionPage] _isCallAccepted set to FALSE — audio capture gated off");
+
                 LoggingService.Info("[VoiceSessionPage] Stopping transcription session...");
-                
+
                 // Stop call logging
                 if (_callLogger != null)
                 {
@@ -1437,13 +1546,10 @@ namespace DataRippleAIDesktop.Views
                     LoggingService.Warn("[VoiceSessionPage] ⚠️ Call logger was null when trying to stop - skipping call logging stop");
                 }
                 
-                // Add call end separator to conversation
+                // Record stats, stop timer, and return to idle
                 var callDuration = DateTime.Now - _callStartTime;
                 Dispatcher.Invoke(() =>
                 {
-                    CreateCallSeparator("End Call", DateTime.Now, false);
-                    LoggingService.Info("[VoiceSessionPage] ✅ 'End Call' separator added to conversation");
-
                     // Record stats, stop timer, show idle panel
                     RecordCallStats(callDuration);
                     StopCallDurationTimer();
@@ -1479,39 +1585,47 @@ namespace DataRippleAIDesktop.Views
                     _latencySamples.Clear();
                 }
 
-                // Stop and dispose BackendAudioStreamingService (fresh session for each call)
-                if (_backendAudioStreamingService != null)
+                // Send call_ended via persistent BackendAudioStreamingService (driver-initiated end)
+                // Must be sent BEFORE clearing call state, while _activeCallId is still set
+                if (!_callEndedFromBackend && _backendAudioStreamingService != null)
                 {
-                    // Unsubscribe from events first to prevent issues
-                    _backendAudioStreamingService.TranscriptReceived -= OnBackendTranscriptReceived;
-                    _backendAudioStreamingService.AgentResponseReceived -= OnBackendAgentResponseReceived;
-                    _backendAudioStreamingService.ErrorOccurred -= OnBackendErrorOccurred;
-                    _backendAudioStreamingService.ConnectionStatusChanged -= OnBackendConnectionStatusChanged;
-                    _backendAudioStreamingService.SessionStatusReceived -= OnBackendSessionStatusReceived;
-                    _backendAudioStreamingService.AudioChunkLatencyMeasured -= OnAudioChunkLatencyMeasured;
-                    LoggingService.Info("[VoiceSessionPage] BackendAudioStreamingService events unsubscribed");
-
-                    await _backendAudioStreamingService.DisconnectAsync();
-                    LoggingService.Info("[VoiceSessionPage] BackendAudioStreamingService disconnected");
-
-                    // Small delay to allow background tasks to complete before disposal
-                    await Task.Delay(200);
-
-                    // Dispose and clear reference
-                    _backendAudioStreamingService.Dispose();
-                    _backendAudioStreamingService = null;
-                    LoggingService.Info("[VoiceSessionPage] BackendAudioStreamingService disposed and cleared");
+                    try
+                    {
+                        bool sent = await _backendAudioStreamingService.SendCallEndedAsync(reason: "completed");
+                        if (sent)
+                        {
+                            LoggingService.Info("[VoiceSessionPage] call_ended sent via BackendAudioStreamingService");
+                        }
+                        else
+                        {
+                            LoggingService.Warn("[VoiceSessionPage] Failed to send call_ended (service not connected or no active call)");
+                        }
+                    }
+                    catch (Exception callEndEx)
+                    {
+                        LoggingService.Error($"[VoiceSessionPage] Error sending call_ended: {callEndEx.Message}");
+                    }
+                }
+                else if (_callEndedFromBackend)
+                {
+                    LoggingService.Info("[VoiceSessionPage] Skipping call_ended — call was ended from backend");
                 }
 
+                // NOTE: BackendAudioStreamingService is persistent (owned by MainWindow) — do NOT disconnect or dispose it here.
                 LoggingService.Info("[VoiceSessionPage] Transcription session stopped successfully");
-                
+
+                // Clear backend notification IDs from previous call
+                _backendNotificationSessionId = null;
+                _backendNotificationConversationId = null;
+                _backendNotificationAgentId = null;
+
                 // Clear disposal state and notify completion
                 lock (_disposalLock)
                 {
                     _isDisposing = false;
                     LoggingService.Info("[VoiceSessionPage] Disposal state set to FALSE - allowing new starts");
                 }
-                
+
                 // Dispose cancellation token source
                 try
                 {
@@ -1523,10 +1637,10 @@ namespace DataRippleAIDesktop.Views
                 {
                     LoggingService.Info($"[VoiceSessionPage] Error disposing cancellation token: {tokenEx.Message}");
                 }
-                
+
                 // Small additional delay to ensure all background tasks are fully stopped
                 await Task.Delay(100);
-                
+
                 DisposalCompleted?.Invoke();
                 LoggingService.Info("[VoiceSessionPage] Disposal completed event fired");
             }
@@ -1610,6 +1724,7 @@ namespace DataRippleAIDesktop.Views
             {
                 IdleWelcomePanel.Visibility = Visibility.Visible;
                 _isCallActive = false;
+                _isCallAccepted = false; // Ensure audio capture gate is off when returning to idle
                 ActiveCallIndicator.Visibility = Visibility.Collapsed;
                 UpdateStatsDisplay();
                 LoggingService.Info("[VoiceSessionPage] Idle welcome panel shown");
@@ -1646,8 +1761,9 @@ namespace DataRippleAIDesktop.Views
         {
             try
             {
-                StatsCallsAccepted.Text = _callsAcceptedCount.ToString();
-                StatsCallsRejected.Text = _callsRejectedCount.ToString();
+                // Total calls = accepted + rejected
+                int totalCalls = _callsAcceptedCount + _callsRejectedCount;
+                StatsTotalCalls.Text = totalCalls.ToString();
 
                 if (_callDurations.Count > 0)
                 {
@@ -2224,6 +2340,8 @@ namespace DataRippleAIDesktop.Views
             {
                 // Mark as disposing so that the Unloaded event handler performs full cleanup
                 _isDisposing = true;
+                // Ensure audio capture is gated off during disposal
+                _isCallAccepted = false;
                 // Also reset the initialization flag so a fresh page starts clean
                 _hasBeenInitialized = false;
 
@@ -2246,8 +2364,10 @@ namespace DataRippleAIDesktop.Views
                 {
                     try
                     {
-                        _ivrService.CallAnswered -= OnIVRCallAnswered;
-                        _ivrService.CallRejected -= OnIVRCallRejected;
+                        // IVR accept/reject subscriptions were disabled (see InitializeIVRService);
+                        // unsubscribe calls kept commented out for symmetry.
+                        // _ivrService.CallAnswered -= OnIVRCallAnswered;
+                        // _ivrService.CallRejected -= OnIVRCallRejected;
                         _ivrService.IncomingCallRinging -= OnIVRIncomingCallRinging;
                         LoggingService.Info("[VoiceSessionPage] IVR events unsubscribed during disposal");
                     }
@@ -2257,28 +2377,19 @@ namespace DataRippleAIDesktop.Views
                     }
                 }
 
-                // Stop BackendAudioStreamingService
+                // Unsubscribe from persistent BackendAudioStreamingService events (service is owned by MainWindow)
                 if (_backendAudioStreamingService != null)
                 {
-                    LoggingService.Info("[VoiceSessionPage] Stopping BackendAudioStreamingService...");
-                    // Unsubscribe events before disconnect to prevent callbacks during disposal
+                    LoggingService.Info("[VoiceSessionPage] Unsubscribing from BackendAudioStreamingService events...");
                     _backendAudioStreamingService.TranscriptReceived -= OnBackendTranscriptReceived;
                     _backendAudioStreamingService.AgentResponseReceived -= OnBackendAgentResponseReceived;
                     _backendAudioStreamingService.ErrorOccurred -= OnBackendErrorOccurred;
                     _backendAudioStreamingService.ConnectionStatusChanged -= OnBackendConnectionStatusChanged;
                     _backendAudioStreamingService.SessionStatusReceived -= OnBackendSessionStatusReceived;
                     _backendAudioStreamingService.AudioChunkLatencyMeasured -= OnAudioChunkLatencyMeasured;
-                    try
-                    {
-                        await _backendAudioStreamingService.DisconnectAsync();
-                    }
-                    catch (Exception disconnectEx)
-                    {
-                        LoggingService.Warn($"[VoiceSessionPage] Error disconnecting BackendAudioStreamingService: {disconnectEx.Message}");
-                    }
-                    _backendAudioStreamingService.Dispose();
+                    // Do NOT disconnect or dispose — persistent service owned by MainWindow
                     _backendAudioStreamingService = null;
-                    LoggingService.Info("[VoiceSessionPage] BackendAudioStreamingService stopped and disposed");
+                    LoggingService.Info("[VoiceSessionPage] BackendAudioStreamingService events unsubscribed (service kept alive)");
                 }
 
                 // Stop audio recorder
@@ -2928,6 +3039,14 @@ namespace DataRippleAIDesktop.Views
             }
         }
 
+        // NOTE: OnBackendCallEndedReceived was removed as dead code.
+        // Call lifecycle events (call_accepted, call_rejected, call_ended) from BackendAudioStreamingService
+        // are routed exclusively through MainWindow, which calls:
+        //   - OnBackendCallAccepted() for call_accepted
+        //   - OnBackendCallRejected() for call_rejected
+        //   - EndCallFromBackendAudio() for call_ended
+        // See MainWindow.OnBackendAudioCallAccepted/Rejected/Ended handlers.
+
         /// <summary>
         /// Handle connection status changes from the backend audio streaming service.
         /// Note: The BE WS indicator now reflects backend API reachability (health check),
@@ -3415,7 +3534,10 @@ namespace DataRippleAIDesktop.Views
         }
 
         /// <summary>
-        /// Event handler when call is answered
+        /// [UNUSED] Legacy IVR event handler when call is answered locally.
+        /// No longer subscribed -- call acceptance is now handled by BackendAudioStreamingService
+        /// (call_accepted event from dashboard routed through MainWindow).
+        /// Retained for potential rollback.
         /// </summary>
         private void OnIVRCallAnswered(object sender, string callId)
         {
@@ -3440,7 +3562,7 @@ namespace DataRippleAIDesktop.Views
                         // Notify MainWindow that call is active
                         OnVoiceSessionCallStarted?.Invoke(this, EventArgs.Empty);
 
-                        LoggingService.Info("[VoiceSessionPage] ✅ Call started successfully after accepting");
+                        LoggingService.Info("[VoiceSessionPage] Call started successfully after accepting");
                     }
                     catch (Exception ex)
                     {
@@ -3461,22 +3583,21 @@ namespace DataRippleAIDesktop.Views
         }
 
         /// <summary>
-        /// Event handler when call is rejected
+        /// [UNUSED] Legacy IVR event handler when call is rejected locally.
+        /// No longer subscribed -- call rejection is now handled by BackendAudioStreamingService
+        /// (call_rejected event from dashboard routed through MainWindow).
+        /// Retained for potential rollback.
         /// </summary>
         private void OnIVRCallRejected(object sender, string callId)
         {
             try
             {
-                LoggingService.Info($"[VoiceSessionPage] ❌ Call rejected - Call ID: {callId}");
+                LoggingService.Info($"[VoiceSessionPage] Call rejected - Call ID: {callId}");
 
-                // Hide incoming call panel and show reject separator
+                // Hide incoming call panel and return to idle
                 Dispatcher.Invoke(() =>
                 {
                     IncomingCallPanel.Visibility = Visibility.Collapsed;
-
-                    // Show "Call Reject" separator (no duration since call didn't start)
-                    CreateCallSeparator("Call Reject", DateTime.Now, false, showDuration: false);
-                    LoggingService.Info("[VoiceSessionPage] ✅ 'Call Reject' separator added to conversation");
 
                     // Record rejected call stat and update display
                     _callsRejectedCount++;
@@ -3497,46 +3618,82 @@ namespace DataRippleAIDesktop.Views
         }
 
         /// <summary>
-        /// Accept button click handler
+        /// Accept button click handler.
+        /// Accepts the call locally (driver-initiated) -- hides the incoming call panel
+        /// and starts the audio session.  This mirrors what OnBackendCallAccepted does
+        /// when the dashboard accepts.
         /// </summary>
         private async void AcceptCallButton_Click(object sender, RoutedEventArgs e)
         {
             try
             {
-                LoggingService.Info("[VoiceSessionPage] Accept call button clicked");
+                LoggingService.Info("[VoiceSessionPage] Accept call button clicked (driver-initiated)");
 
-                if (_ivrService != null)
-                {
-                    await _ivrService.AnswerCallAsync();
-                }
-                else
-                {
-                    LoggingService.Warn("[VoiceSessionPage] IVR service not available");
-                }
+                // Stop IVR ringing tone
+                _ivrService?.StopRinging();
+
+                // Hide incoming call panel
+                IncomingCallPanel.Visibility = Visibility.Collapsed;
+
+                // Mark call as accepted — this gates mic/speaker audio capture
+                _isCallAccepted = true;
+                LoggingService.Info("[VoiceSessionPage] _isCallAccepted set to TRUE (driver-initiated accept)");
+
+                // Start the call session (audio capture, UI setup, etc.)
+                await StartNewTranscription();
+
+                // Notify MainWindow that call is active
+                OnVoiceSessionCallStarted?.Invoke(this, EventArgs.Empty);
+
+                LoggingService.Info("[VoiceSessionPage] Call started after driver accepted");
             }
             catch (Exception ex)
             {
                 LoggingService.Error($"[VoiceSessionPage] Error accepting call: {ex.Message}");
+                OnVoiceSessionCallStartFailed?.Invoke(this, ex.Message);
             }
         }
 
         /// <summary>
-        /// Reject button click handler
+        /// Reject button click handler.
+        /// Rejects the call locally (driver-initiated) -- hides the incoming call panel,
+        /// sends call_ended to the backend, and returns to idle.
         /// </summary>
         private async void RejectCallButton_Click(object sender, RoutedEventArgs e)
         {
             try
             {
-                LoggingService.Info("[VoiceSessionPage] Reject call button clicked");
+                LoggingService.Info("[VoiceSessionPage] Reject call button clicked (driver-initiated)");
 
-                if (_ivrService != null)
+                // Ensure audio capture is gated off (defensive — should already be false)
+                _isCallAccepted = false;
+
+                // Stop IVR ringing tone
+                _ivrService?.StopRinging();
+
+                // Hide incoming call panel
+                IncomingCallPanel.Visibility = Visibility.Collapsed;
+
+                // Send call_ended to backend via BackendAudioStreamingService to inform the dashboard
+                if (_backendAudioStreamingService != null && _backendAudioStreamingService.IsConnected)
                 {
-                    await _ivrService.RejectCallAsync();
+                    await _backendAudioStreamingService.SendCallEndedAsync(reason: "rejected");
+                    LoggingService.Info("[VoiceSessionPage] call_ended (rejected) sent via BackendAudioStreamingService");
                 }
                 else
                 {
-                    LoggingService.Warn("[VoiceSessionPage] IVR service not available");
+                    LoggingService.Warn("[VoiceSessionPage] BackendAudioStreamingService not available - skipping call_ended notification for rejection");
                 }
+
+                // Update stats and show idle panel
+                _callsRejectedCount++;
+                UpdateStatsDisplay();
+                ShowIdlePanel();
+
+                // Notify MainWindow that call was rejected so button state resets
+                OnVoiceSessionCallRejected?.Invoke(this, EventArgs.Empty);
+
+                LoggingService.Info("[VoiceSessionPage] Call rejected by driver - returned to idle");
             }
             catch (Exception ex)
             {
@@ -3545,6 +3702,324 @@ namespace DataRippleAIDesktop.Views
         }
 
         // OnFrontendCallReject and OnFrontendCallEnd event handlers removed — no longer receiving call control from frontend
+
+        #region Backend Call Notification Handlers
+
+        /// <summary>
+        /// Called by MainWindow when the persistent BackendAudioStreamingService receives call_accepted.
+        /// Starts audio capture and the call session.
+        /// </summary>
+        public async Task OnBackendCallAccepted(string callId, string sessionId, string conversationId, string agentId)
+        {
+            try
+            {
+                LoggingService.Info($"[VoiceSessionPage] call_accepted received - call_id: {callId}, starting audio capture...");
+
+                // Stop IVR ringing tone if still playing
+                _ivrService?.StopRinging();
+
+                // Store backend-assigned IDs
+                _backendNotificationSessionId = sessionId;
+                _backendNotificationConversationId = conversationId;
+                _backendNotificationAgentId = agentId;
+
+                // Hide incoming call panel if still showing
+                IncomingCallPanel.Visibility = Visibility.Collapsed;
+
+                // Mark call as accepted — this gates mic/speaker audio capture
+                _isCallAccepted = true;
+                LoggingService.Info("[VoiceSessionPage] _isCallAccepted set to TRUE (backend call_accepted)");
+
+                // Start the call session (audio capture, UI setup, etc.)
+                await StartNewTranscription();
+
+                // Notify MainWindow that call is active
+                OnVoiceSessionCallStarted?.Invoke(this, EventArgs.Empty);
+
+                LoggingService.Info("[VoiceSessionPage] Audio capture started after call_accepted");
+            }
+            catch (Exception ex)
+            {
+                LoggingService.Error($"[VoiceSessionPage] Error starting call after call_accepted: {ex.Message}");
+                OnVoiceSessionCallStartFailed?.Invoke(this, ex.Message);
+            }
+        }
+
+        /// <summary>
+        /// Called by MainWindow when the persistent BackendAudioStreamingService receives call_rejected.
+        /// Returns the driver to idle state.
+        /// </summary>
+        public async void OnBackendCallRejected(string callId, string reason)
+        {
+            try
+            {
+                LoggingService.Info($"[VoiceSessionPage] call_rejected received - call_id: {callId}, reason: {reason}");
+
+                // Immediately gate off audio capture BEFORE any other operations
+                _isCallAccepted = false;
+                LoggingService.Info("[VoiceSessionPage] _isCallAccepted set to FALSE (backend call_rejected)");
+
+                // Stop IVR ringing tone if still playing
+                _ivrService?.StopRinging();
+
+                IncomingCallPanel.Visibility = Visibility.Collapsed;
+
+                // Defensive: If audio is somehow recording (race condition or protocol error),
+                // stop it. Normally audio should not be running during the ringing phase,
+                // but this guards against edge cases (e.g., rapid accept-then-reject).
+                if (_audioRecorderVisualizer != null && _audioRecorderVisualizer.IsRecording())
+                {
+                    LoggingService.Warn("[VoiceSessionPage] Audio was still recording during call_rejected — stopping audio capture");
+                    _callEndedFromBackend = true;
+                    try
+                    {
+                        await StopTranscription();
+                    }
+                    finally
+                    {
+                        _callEndedFromBackend = false;
+                    }
+                }
+                else
+                {
+                    // Cancel any background tasks that may have been started (e.g., PollForConversationIdAndStartCall)
+                    try
+                    {
+                        _frontendCancellationTokenSource?.Cancel();
+                    }
+                    catch (Exception cancelEx)
+                    {
+                        LoggingService.Debug($"[VoiceSessionPage] Error cancelling background tasks during reject: {cancelEx.Message}");
+                    }
+                }
+
+                _callsRejectedCount++;
+                UpdateStatsDisplay();
+                ShowIdlePanel();
+
+                // Notify MainWindow that call was rejected
+                OnVoiceSessionCallRejected?.Invoke(this, EventArgs.Empty);
+
+                LoggingService.Info("[VoiceSessionPage] Returned to idle after call_rejected");
+            }
+            catch (Exception ex)
+            {
+                LoggingService.Error($"[VoiceSessionPage] Error handling call_rejected: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Called by MainWindow when the persistent BackendAudioStreamingService receives call_ended
+        /// (dashboard ended the call). Stops audio capture with echo prevention.
+        /// </summary>
+        public async Task EndCallFromBackendAudio(string callId, string reason, int durationSecs)
+        {
+            try
+            {
+                LoggingService.Info($"[VoiceSessionPage] Backend audio call_ended - call_id: {callId}, reason: {reason}, duration: {durationSecs}s");
+
+                // Immediately gate off audio capture before full stop sequence
+                _isCallAccepted = false;
+
+                // Stop IVR ringing tone if still playing
+                _ivrService?.StopRinging();
+
+                // Flag to prevent sending call_ended back to the backend (avoid echo)
+                _callEndedFromBackend = true;
+
+                await StopTranscription();
+
+                LoggingService.Info("[VoiceSessionPage] Call stopped from backend audio call_ended");
+            }
+            catch (Exception ex)
+            {
+                LoggingService.Error($"[VoiceSessionPage] Error handling backend audio call_ended: {ex.Message}");
+            }
+            finally
+            {
+                _callEndedFromBackend = false;
+            }
+        }
+
+        /// <summary>
+        /// Legacy: Called by MainWindow when the CallNotificationService receives call_accepted.
+        /// Kept for backward compatibility but CallNotificationService is now disabled.
+        /// </summary>
+        public async Task AcceptCallFromBackend(CallAcceptedEvent evt)
+        {
+            await OnBackendCallAccepted(evt.CallId, evt.SessionId, evt.ConversationId, evt.AgentId);
+        }
+
+        /// <summary>
+        /// Legacy: Called by MainWindow when the CallNotificationService receives call_rejected.
+        /// Kept for backward compatibility but CallNotificationService is now disabled.
+        /// </summary>
+        public async Task RejectCallFromBackend(CallRejectedEvent evt)
+        {
+            OnBackendCallRejected(evt.CallId, evt.Reason);
+            await Task.CompletedTask;
+        }
+
+        /// <summary>
+        /// Called by MainWindow when the backend/dashboard ends the active call.
+        /// Stops audio capture and returns to idle state.
+        /// </summary>
+        public async Task EndCallFromBackend(CallEndedInboundEvent evt)
+        {
+            try
+            {
+                LoggingService.Info($"[VoiceSessionPage] Backend ended call - call_id: {evt.CallId}, reason: {evt.Reason}, duration: {evt.DurationSecs}s");
+
+                // Immediately gate off audio capture before full stop sequence
+                _isCallAccepted = false;
+
+                // Flag to prevent sending call_ended back to the backend (avoid echo)
+                _callEndedFromBackend = true;
+
+                // Stop transcription (same as pressing End Call)
+                await StopTranscription();
+
+                LoggingService.Info("[VoiceSessionPage] Call ended from backend notification - transcription stopped");
+            }
+            catch (Exception ex)
+            {
+                LoggingService.Error($"[VoiceSessionPage] Error ending call from backend: {ex.Message}");
+            }
+            finally
+            {
+                _callEndedFromBackend = false;
+            }
+        }
+
+        /// <summary>
+        /// Sends call_incoming event via the CallNotificationService.
+        /// Called after SimulateIncomingCallAsync triggers the IVR ringing.
+        /// </summary>
+        private async Task SendCallIncomingNotification()
+        {
+            const int maxRetries = 2;
+
+            for (int attempt = 0; attempt <= maxRetries; attempt++)
+            {
+                try
+                {
+                    var mainWindow = Application.Current?.MainWindow as MainWindow;
+                    var callNotificationService = mainWindow?.GetCallNotificationService();
+
+                    if (callNotificationService == null || !callNotificationService.IsConnected)
+                    {
+                        LoggingService.Warn($"[VoiceSessionPage] CallNotificationService not available - attempt {attempt + 1}/{maxRetries + 1}");
+                        if (attempt < maxRetries)
+                        {
+                            await Task.Delay(500 * (attempt + 1));
+                            continue;
+                        }
+                        LoggingService.Error("[VoiceSessionPage] CallNotificationService not available after all retries - skipping call_incoming notification");
+                        return;
+                    }
+
+                    string callId = _ivrService?.GetCurrentCallId() ?? $"call_{Guid.NewGuid().ToString("N").Substring(0, 8)}";
+                    string csrId = Globals.UserId;
+                    if (string.IsNullOrEmpty(csrId))
+                    {
+                        var userDetails = SecureTokenStorage.RetrieveUserDetails();
+                        csrId = userDetails?.Email?.ToString() ?? "unknown_user";
+                    }
+
+                    var customer = new CustomerInfo
+                    {
+                        Name = _ivrService?.CurrentCustomerName ?? "Unknown",
+                        CustomerId = _ivrService?.CurrentCustomerId ?? "unknown",
+                        PhoneE164 = _ivrService?.CurrentCustomerPhone ?? "+000000000",
+                        Email = _ivrService?.CurrentCustomerEmail ?? ""
+                    };
+
+                    var employee = new EmployeeInfo
+                    {
+                        Id = csrId,
+                        Email = csrId,
+                        CompanyId = "default",
+                        CompanyName = "DataRipple"
+                    };
+
+                    bool sent = await callNotificationService.SendCallIncomingAsync(callId, csrId, customer, employee);
+                    if (sent)
+                    {
+                        LoggingService.Info($"[VoiceSessionPage] call_incoming sent via CallNotificationService - call_id: {callId}");
+                        return;
+                    }
+                    else
+                    {
+                        LoggingService.Warn($"[VoiceSessionPage] Failed to send call_incoming - attempt {attempt + 1}/{maxRetries + 1}");
+                        if (attempt < maxRetries)
+                        {
+                            await Task.Delay(500 * (attempt + 1));
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    LoggingService.Error($"[VoiceSessionPage] Error sending call_incoming notification (attempt {attempt + 1}/{maxRetries + 1}): {ex.Message}");
+                    if (attempt < maxRetries)
+                    {
+                        await Task.Delay(500 * (attempt + 1));
+                    }
+                }
+            }
+
+            LoggingService.Error("[VoiceSessionPage] All retries exhausted for call_incoming notification");
+        }
+
+        /// <summary>
+        /// Sends call_ended event via the CallNotificationService.
+        /// Called after StopTranscription completes (driver-initiated end).
+        /// </summary>
+        private async Task SendCallEndedNotification(string reason = "completed")
+        {
+            try
+            {
+                // Don't echo back if the call was ended from backend
+                if (_callEndedFromBackend)
+                {
+                    LoggingService.Info("[VoiceSessionPage] Skipping call_ended notification - call was ended from backend");
+                    return;
+                }
+
+                var mainWindow = Application.Current?.MainWindow as MainWindow;
+                var callNotificationService = mainWindow?.GetCallNotificationService();
+
+                if (callNotificationService == null || !callNotificationService.IsConnected)
+                {
+                    LoggingService.Warn("[VoiceSessionPage] CallNotificationService not available - skipping call_ended notification");
+                    return;
+                }
+
+                bool sent = await callNotificationService.SendCallEndedAsync(reason: reason);
+                if (sent)
+                {
+                    LoggingService.Info("[VoiceSessionPage] call_ended sent via CallNotificationService");
+                }
+            }
+            catch (Exception ex)
+            {
+                LoggingService.Error($"[VoiceSessionPage] Error sending call_ended notification: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Called by MainWindow when the backend ACKs call_incoming with a session_id.
+        /// Stores the session_id for use when starting audio streaming.
+        /// </summary>
+        public void SetBackendSessionId(string sessionId)
+        {
+            if (!string.IsNullOrEmpty(sessionId))
+            {
+                _backendNotificationSessionId = sessionId;
+                LoggingService.Info($"[VoiceSessionPage] Backend session_id stored: {sessionId}");
+            }
+        }
+
+        #endregion
 
         /// <summary>
         /// Simulate incoming call (for testing) - triggered by Start Call button
@@ -3562,10 +4037,10 @@ namespace DataRippleAIDesktop.Views
                 else
                 {
                     LoggingService.Warn("[VoiceSessionPage] IVR service not available, attempting to re-initialize...");
-                    
+
                     // Try to re-initialize the IVR service
                     InitializeIVRService();
-                    
+
                     if (_ivrService != null)
                     {
                         LoggingService.Info("[VoiceSessionPage] IVR service re-initialized successfully, retrying...");
@@ -3575,7 +4050,18 @@ namespace DataRippleAIDesktop.Views
                     {
                         LoggingService.Error("[VoiceSessionPage] Failed to re-initialize IVR service");
                         MessageBox.Show("IVR service could not be initialized. Please check logs.", "Error", MessageBoxButton.OK, MessageBoxImage.Warning);
+                        return;
                     }
+                }
+
+                // Send call_incoming notification to backend via CallNotificationService (with retry)
+                try
+                {
+                    await SendCallIncomingNotification();
+                }
+                catch (Exception notifEx)
+                {
+                    LoggingService.Error($"[VoiceSessionPage] Failed to send call_incoming notification: {notifEx.Message}");
                 }
             }
             catch (Exception ex)
@@ -3585,6 +4071,181 @@ namespace DataRippleAIDesktop.Views
         }
 
         #endregion
+
+        // =====================================================================
+        // Active Call Popup Support
+        // =====================================================================
+
+        /// <summary>
+        /// Gets whether a call is currently active (accepted and running).
+        /// </summary>
+        public bool IsCallActive => _isCallActive;
+
+        /// <summary>
+        /// Gets the time the current call started. Returns DateTime.MinValue if no call is active.
+        /// </summary>
+        public DateTime CallStartTime => _callStartTime;
+
+        /// <summary>
+        /// Gets the current caller/customer name, or "Unknown" if unavailable.
+        /// </summary>
+        public string CurrentCallerName
+        {
+            get
+            {
+                try
+                {
+                    return _ivrService?.CurrentCustomerName ?? "Unknown";
+                }
+                catch
+                {
+                    return "Unknown";
+                }
+            }
+        }
+
+        /// <summary>
+        /// Gets the current caller phone number, or empty string if unavailable.
+        /// </summary>
+        public string CurrentCallerPhone
+        {
+            get
+            {
+                try
+                {
+                    return _ivrService?.CurrentCustomerPhone ?? "";
+                }
+                catch
+                {
+                    return "";
+                }
+            }
+        }
+
+        /// <summary>
+        /// Gets or sets whether the microphone is muted. When muted, mic audio is not sent to backend.
+        /// </summary>
+        public bool IsMicrophoneMuted
+        {
+            get => _backendAudioStreamingService?.IsMicrophoneMuted ?? false;
+            set
+            {
+                if (_backendAudioStreamingService != null)
+                {
+                    _backendAudioStreamingService.IsMicrophoneMuted = value;
+                    LoggingService.Info($"[VoiceSessionPage] Microphone mute set to {value} from popup");
+                }
+            }
+        }
+
+        /// <summary>
+        /// Gets whether the incoming call panel is visible (ringing state).
+        /// The call is ringing when IncomingCallPanel is shown and the call has not yet been accepted.
+        /// </summary>
+        public bool IsRinging
+        {
+            get
+            {
+                try
+                {
+                    return IncomingCallPanel.Visibility == Visibility.Visible && !_isCallAccepted;
+                }
+                catch
+                {
+                    return false;
+                }
+            }
+        }
+
+        /// <summary>
+        /// Accepts the current ringing call from the popup window.
+        /// Mirrors AcceptCallButton_Click but can be called externally by MainWindow.
+        /// </summary>
+        public async Task AcceptCallFromPopup()
+        {
+            try
+            {
+                LoggingService.Info("[VoiceSessionPage] Accept call requested from popup");
+
+                // Stop IVR ringing tone
+                _ivrService?.StopRinging();
+
+                // Hide incoming call panel
+                Dispatcher.Invoke(() =>
+                {
+                    IncomingCallPanel.Visibility = Visibility.Collapsed;
+                });
+
+                // Mark call as accepted -- this gates mic/speaker audio capture
+                _isCallAccepted = true;
+                LoggingService.Info("[VoiceSessionPage] _isCallAccepted set to TRUE (popup-initiated accept)");
+
+                // Start the call session (audio capture, UI setup, etc.)
+                await StartNewTranscription();
+
+                // Notify MainWindow that call is active
+                OnVoiceSessionCallStarted?.Invoke(this, EventArgs.Empty);
+
+                LoggingService.Info("[VoiceSessionPage] Call started after popup accepted");
+            }
+            catch (Exception ex)
+            {
+                LoggingService.Error($"[VoiceSessionPage] Error accepting call from popup: {ex.Message}");
+                OnVoiceSessionCallStartFailed?.Invoke(this, ex.Message);
+            }
+        }
+
+        /// <summary>
+        /// Rejects the current ringing call from the popup window.
+        /// Mirrors RejectCallButton_Click but can be called externally by MainWindow.
+        /// </summary>
+        public async Task RejectCallFromPopup()
+        {
+            try
+            {
+                LoggingService.Info("[VoiceSessionPage] Reject call requested from popup");
+
+                // Ensure audio capture is gated off (defensive)
+                _isCallAccepted = false;
+
+                // Stop IVR ringing tone
+                _ivrService?.StopRinging();
+
+                // Hide incoming call panel
+                Dispatcher.Invoke(() =>
+                {
+                    IncomingCallPanel.Visibility = Visibility.Collapsed;
+                });
+
+                // Send call_ended to backend via BackendAudioStreamingService
+                if (_backendAudioStreamingService != null && _backendAudioStreamingService.IsConnected)
+                {
+                    await _backendAudioStreamingService.SendCallEndedAsync(reason: "rejected");
+                    LoggingService.Info("[VoiceSessionPage] call_ended (rejected) sent via BackendAudioStreamingService (popup)");
+                }
+                else
+                {
+                    LoggingService.Warn("[VoiceSessionPage] BackendAudioStreamingService not available - skipping call_ended notification for popup rejection");
+                }
+
+                // Update stats and show idle panel
+                Dispatcher.Invoke(() =>
+                {
+                    _callsRejectedCount++;
+                    UpdateStatsDisplay();
+                    ShowIdlePanel();
+                });
+
+                // Notify MainWindow that call was rejected so button state resets
+                OnVoiceSessionCallRejected?.Invoke(this, EventArgs.Empty);
+
+                LoggingService.Info("[VoiceSessionPage] Call rejected from popup - returned to idle");
+            }
+            catch (Exception ex)
+            {
+                LoggingService.Error($"[VoiceSessionPage] Error rejecting call from popup: {ex.Message}");
+            }
+        }
 
     }
 }

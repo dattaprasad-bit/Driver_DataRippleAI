@@ -344,44 +344,22 @@
                                 HorizontalAlignment="Center"
                                 Margin="0,8,0,12">
 
-                        <!--  Calls Accepted Card  -->
+                        <!--  Total Calls Card  -->
                         <Border Background="#1A2942"
                                 BorderBrush="Transparent"
                                 BorderThickness="0"
                                 CornerRadius="10"
-                                Width="140" Height="80"
-                                Margin="0,0,12,0"
+                                Width="180" Height="80"
+                                Margin="0,0,14,0"
                                 Padding="10">
                             <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
-                                <TextBlock x:Name="StatsCallsAccepted"
+                                <TextBlock x:Name="StatsTotalCalls"
                                            Text="0"
                                            FontSize="24"
                                            FontWeight="Bold"
                                            Foreground="#00D4FF"
                                            HorizontalAlignment="Center"/>
-                                <TextBlock Text="Calls Accepted"
-                                           FontSize="11"
-                                           Foreground="#8B9AAF"
-                                           HorizontalAlignment="Center"/>
-                            </StackPanel>
-                        </Border>
-
-                        <!--  Calls Rejected Card  -->
-                        <Border Background="#1A2942"
-                                BorderBrush="Transparent"
-                                BorderThickness="0"
-                                CornerRadius="10"
-                                Width="140" Height="80"
-                                Margin="0,0,12,0"
-                                Padding="10">
-                            <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
-                                <TextBlock x:Name="StatsCallsRejected"
-                                           Text="0"
-                                           FontSize="24"
-                                           FontWeight="Bold"
-                                           Foreground="#00D4FF"
-                                           HorizontalAlignment="Center"/>
-                                <TextBlock Text="Calls Rejected"
+                                <TextBlock Text="Total Calls"
                                            FontSize="11"
                                            Foreground="#8B9AAF"
                                            HorizontalAlignment="Center"/>
@@ -393,8 +371,8 @@
                                 BorderBrush="Transparent"
                                 BorderThickness="0"
                                 CornerRadius="10"
-                                Width="140" Height="80"
-                                Margin="0,0,12,0"
+                                Width="180" Height="80"
+                                Margin="0,0,14,0"
                                 Padding="10">
                             <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
                                 <TextBlock x:Name="StatsAvgDuration"
@@ -415,7 +393,7 @@
                                 BorderBrush="Transparent"
                                 BorderThickness="0"
                                 CornerRadius="10"
-                                Width="140" Height="80"
+                                Width="180" Height="80"
                                 Padding="10">
                             <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
                                 <TextBlock x:Name="StatsAvgLatency"

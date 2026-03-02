@@ -1,0 +1,185 @@
+<Window
+    x:Class="DataRippleAIDesktop.Views.IncomingCallPopupWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    WindowStyle="None"
+    AllowsTransparency="True"
+    Background="Transparent"
+    Topmost="True"
+    ShowInTaskbar="False"
+    ShowActivated="False"
+    ResizeMode="NoResize"
+    SizeToContent="WidthAndHeight">
+
+    <Window.Resources>
+        <!-- Accept button style (green) -->
+        <Style x:Key="AcceptButtonStyle" TargetType="Button">
+            <Setter Property="Background" Value="#28A745"/>
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="FontSize" Value="14"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="ButtonBorder"
+                                Background="{TemplateBinding Background}"
+                                CornerRadius="10"
+                                Padding="0">
+                            <ContentPresenter HorizontalAlignment="Center"
+                                              VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="ButtonBorder" Property="Background" Value="#218838"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="ButtonBorder" Property="Background" Value="#1E7E34"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- Reject button style (red) -->
+        <Style x:Key="RejectButtonStyle" TargetType="Button">
+            <Setter Property="Background" Value="#B22222"/>
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="FontSize" Value="14"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="ButtonBorder"
+                                Background="{TemplateBinding Background}"
+                                CornerRadius="10"
+                                Padding="0">
+                            <ContentPresenter HorizontalAlignment="Center"
+                                              VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="ButtonBorder" Property="Background" Value="#8B0000"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="ButtonBorder" Property="Background" Value="#6B0000"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </Window.Resources>
+
+    <!-- Main card -->
+    <Border x:Name="PopupBorder"
+            Background="#132340"
+            BorderBrush="#1A3A5C"
+            BorderThickness="1"
+            CornerRadius="12"
+            Width="380"
+            Padding="20,16,20,16">
+        <Border.Effect>
+            <DropShadowEffect BlurRadius="20"
+                              ShadowDepth="4"
+                              Color="#000000"
+                              Opacity="0.6"
+                              Direction="270"/>
+        </Border.Effect>
+        <Border.RenderTransform>
+            <TranslateTransform x:Name="SlideTransform" Y="0"/>
+        </Border.RenderTransform>
+
+        <Grid>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
+
+            <!-- Row 0: Header with phone icon and "Incoming Call" text -->
+            <StackPanel Grid.Row="0"
+                        Orientation="Horizontal"
+                        Margin="0,0,0,12">
+                <!-- Pulsing phone icon -->
+                <Border Width="36" Height="36"
+                        CornerRadius="18"
+                        Background="#1A3A5C"
+                        Margin="0,0,12,0"
+                        VerticalAlignment="Center">
+                    <TextBlock Text="&#x1F4DE;"
+                               FontSize="18"
+                               HorizontalAlignment="Center"
+                               VerticalAlignment="Center"/>
+                </Border>
+                <StackPanel VerticalAlignment="Center">
+                    <TextBlock Text="Incoming Call"
+                               FontSize="16"
+                               FontWeight="SemiBold"
+                               Foreground="White"/>
+                    <TextBlock Text="Ringing..."
+                               FontSize="11"
+                               Foreground="#6B8AAD"
+                               Margin="0,1,0,0"/>
+                </StackPanel>
+            </StackPanel>
+
+            <!-- Row 1: Customer name -->
+            <TextBlock x:Name="CustomerNameText"
+                       Grid.Row="1"
+                       Text="John Doe"
+                       FontSize="20"
+                       FontWeight="Bold"
+                       Foreground="White"
+                       Margin="0,4,0,4"
+                       TextTrimming="CharacterEllipsis"/>
+
+            <!-- Row 2: Phone number -->
+            <TextBlock x:Name="PhoneNumberText"
+                       Grid.Row="2"
+                       Text="+919876543210"
+                       FontSize="14"
+                       Foreground="#6B8AAD"
+                       Margin="0,0,0,16"
+                       TextTrimming="CharacterEllipsis"/>
+
+            <!-- Row 3: Accept / Reject buttons -->
+            <Grid Grid.Row="3">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="12"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+
+                <!-- Reject -->
+                <Button x:Name="RejectButton"
+                        Grid.Column="0"
+                        Height="42"
+                        Style="{StaticResource RejectButtonStyle}"
+                        Click="RejectButton_Click">
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                        <TextBlock Text="&#x2716;" FontSize="13" Margin="0,0,6,0" VerticalAlignment="Center"/>
+                        <TextBlock Text="Reject" FontSize="14" VerticalAlignment="Center"/>
+                    </StackPanel>
+                </Button>
+
+                <!-- Accept -->
+                <Button x:Name="AcceptButton"
+                        Grid.Column="2"
+                        Height="42"
+                        Style="{StaticResource AcceptButtonStyle}"
+                        Click="AcceptButton_Click">
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                        <TextBlock Text="&#x2714;" FontSize="13" Margin="0,0,6,0" VerticalAlignment="Center"/>
+                        <TextBlock Text="Accept" FontSize="14" VerticalAlignment="Center"/>
+                    </StackPanel>
+                </Button>
+            </Grid>
+        </Grid>
+    </Border>
+</Window>
